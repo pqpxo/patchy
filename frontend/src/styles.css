@@ -133,7 +133,8 @@ input:disabled, select:disabled { opacity: 0.6; }
 .field-error { color: var(--bad); }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 16px; }
 .form textarea { width: 100%; }
-.inline-form { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.inline-form { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.inline-form > .btn { margin-top: calc(0.86rem * 1.5 + 4px); height: calc(1.5rem + 14px); } /* label row + gap; same height as an input */
 .inline-form .field { margin-bottom: 0; }
 .check { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; color: var(--ink-2); }
 
@@ -183,10 +184,9 @@ input:disabled, select:disabled { opacity: 0.6; }
 .search-btn:hover { border-color: var(--rule-2); color: var(--ink-2); }
 .search-btn kbd { margin-left: auto; }
 .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--rule); padding-top: 10px; }
-.side-foot .who { font-size: 0.85rem; color: var(--ink-3); padding: 0 8px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
 .side-foot .row { display: flex; gap: 2px; justify-content: center; }
 .side-foot .nav-item { justify-content: center; }
-.rail .brand span:not(.logo), .rail .nav-item .label, .rail .nav-item .count, .rail .search-btn .label, .rail .search-btn kbd, .rail .who { display: none; }
+.rail .brand span:not(.logo), .rail .nav-item .label, .rail .nav-item .count, .rail .search-btn .label, .rail .search-btn kbd { display: none; }
 .rail .nav-item, .rail .search-btn { justify-content: center; }
 .rail .side-foot .row { flex-direction: column; align-items: center; }
 .topbar { display: none; }
@@ -306,7 +306,7 @@ main#main:focus { outline: none; }
 .table td { overflow-wrap: anywhere; }
 .table .id { white-space: nowrap; }
 .table tbody tr:hover td { background: color-mix(in srgb, var(--raised) 60%, transparent); }
-.table.compact td, .table.compact th { padding: 5px 8px; }
+.table.compact td, .table.compact th { padding: 5px 16px; }
 .table tr.dim td { opacity: 0.55; }
 .th-sort { font: inherit; text-transform: inherit; letter-spacing: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
 .th-sort .icon { opacity: 0.35; }
@@ -350,6 +350,12 @@ details[open] > summary { margin-bottom: 6px; }
 .meter-list .track i { display: block; height: 100%; background: var(--ink-3); }
 .meter-list .good i { background: var(--good); } .meter-list .warn i { background: var(--warn); } .meter-list .bad i { background: var(--bad); }
 .meter-list b { font-family: var(--mono); font-weight: 600; }
+/* Recent activity: one shared grid so times and status badges line up down the list. */
+.activity { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px 12px; align-items: center; }
+.activity li { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; }
+.activity .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity .when { text-align: right; color: var(--ink-3); font-size: 0.86rem; }
+.activity .badge { justify-content: center; }
 
 /* ---------- fix first queue ---------- */
 .queue { list-style: none; margin: 0; padding: 0; }
@@ -439,6 +445,13 @@ details[open] > summary { margin-bottom: 6px; }
 .host-grid { display: grid; gap: var(--gap); margin-bottom: var(--gap); grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .host-grid > .card { margin: 0; }
 .host-grid > .wide { grid-column: 1 / -1; }
+.help-btn { width: 28px; height: 28px; padding: 0; justify-content: center; font-weight: 700; flex: none; }
+dialog.sheet { width: min(640px, calc(100% - 32px)); max-height: 85vh; overflow: auto; background: var(--raised); color: var(--ink);
+  border: 1px solid var(--rule-2); border-radius: var(--r3); padding: 20px 22px; box-shadow: 0 24px 60px rgb(0 0 0 / 0.35); }
+dialog.sheet::backdrop { background: rgb(0 0 0 / 0.5); }
+dialog.sheet h3 { margin: 18px 0 6px; font-size: 0.95rem; }
+dialog.sheet p, dialog.sheet ul { margin: 0 0 8px; color: var(--ink-2); }
+dialog.sheet ul { padding-left: 18px; }
 .card.fill { contain: size; min-height: 18rem; display: flex; flex-direction: column; }
 .fill-body { flex: 1; min-height: 0; overflow: auto; margin: 0 -18px; padding: 0 18px; }
 @media (max-width: 1200px) { .host-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -464,7 +477,7 @@ details[open] > summary { margin-bottom: 6px; }
   .side { position: fixed; inset: 0 auto 0 0; width: 260px; z-index: 40; transform: translateX(-100%); transition: transform 180ms ease-out; background: var(--canvas); }
   .side.open { transform: none; }
   .backdrop { position: fixed; inset: 0; background: rgb(0 0 0 / 0.45); z-index: 35; }
-  .rail .brand span:not(.logo), .rail .nav-item .label, .rail .nav-item .count, .rail .search-btn .label, .rail .who { display: initial; }
+  .rail .brand span:not(.logo), .rail .nav-item .label, .rail .nav-item .count, .rail .search-btn .label { display: initial; }
   .rail .nav-item, .rail .search-btn { justify-content: flex-start; }
   .rail-toggle { display: none !important; }
   .topbar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--rule); position: sticky; top: 0; background: var(--canvas); z-index: 30; font-weight: 700; }

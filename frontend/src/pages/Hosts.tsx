@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { del, get, post, type Agent, type Asset, type Finding, type Host, type Page, type ScanRun } from "../api";
 import { Icon } from "../icons";
 import { fmtDate, safeUrl } from "../format";
@@ -77,9 +77,47 @@ export function HostsPage() {
 }
 
 function AgentBadge({ a, outdated }: { a: Agent | null; outdated?: boolean }) {
-  if (!a) return <span className="badge tone-muted">none</span>;
-  if (a.revoked_at) return <span className="badge tone-bad">revoked</span>;
-  return <><span className="badge tone-good">active</span>{outdated && <span className="badge tone-warn" title="Older than the agent bundled with this server. Reinstall to update.">update</span>}</>;
+  if (!a) return <span className="badge tone-muted">None</span>;
+  if (a.revoked_at) return <span className="badge tone-bad">Revoked</span>;
+  return <><span className="badge tone-good">Active</span>{outdated && <span className="badge tone-warn" title="Older than the agent bundled with this server. See the update command on the host page.">Update</span>}</>;
+}
+
+function AgentHelp() {
+  const ref = useRef<HTMLDialogElement>(null);
+  return <>
+    <button type="button" className="btn help-btn" title="About the agent" aria-label="About the agent" onClick={() => ref.current?.showModal()}>?</button>
+    <dialog ref={ref} className="sheet" aria-labelledby="agent-help-title" onClick={(e) => { if (e.target === ref.current) ref.current.close(); }}>
+      <div className="card-head"><h2 id="agent-help-title">About the agent</h2>
+        <button type="button" className="icon-btn" aria-label="Close" onClick={() => ref.current?.close()}><Icon name="close" /></button></div>
+      <p>A small, read-only Python script that keeps this host's inventory current. It runs every 6 hours (and a few minutes after boot) and sends one report to Patchy.</p>
+      <h3>What it collects</h3>
+      <ul>
+        <li>Installed OS packages, which Patchy checks against OSV.</li>
+        <li>Listening ports and running services.</li>
+        <li>Versions of common servers and runtimes, such as nginx, OpenSSH, OpenSSL, Python and Node.js.</li>
+        <li>Optional: Docker images, and dependency manifests in folders listed under <code>app_dirs</code>.</li>
+      </ul>
+      <h3>How it stays safe</h3>
+      <ul>
+        <li>It only connects out to this server. It opens no ports and changes nothing on the host.</li>
+        <li>It runs as the unprivileged <code>patchy-agent</code> user in a locked-down systemd service.</li>
+        <li>The token is shown once. Patchy stores only a hash; the host keeps it in <code>/etc/patchy-agent/token</code>.</li>
+      </ul>
+      <h3>States</h3>
+      <ul>
+        <li><strong>Active</strong>: enrolled and allowed to report.</li>
+        <li><strong>Update</strong>: this server bundles a newer agent. Run the update command shown on this card.</li>
+        <li><strong>Revoked</strong>: reports are rejected. Re-enrol to issue a new token.</li>
+      </ul>
+      <h3>Rotate or revoke</h3>
+      <p><strong>Rotate</strong> issues a new token and stops the old one at once; paste the new token into <code>/etc/patchy-agent/token</code>. <strong>Revoke</strong> stops the agent reporting.</p>
+      <h3>Useful commands on the host</h3>
+      <p>Send a report now:</p><CodeBlock code="sudo systemctl start patchy-agent" />
+      <p>Read the logs:</p><CodeBlock code="journalctl -u patchy-agent" />
+      <p>Change what is collected:</p><CodeBlock code="sudo nano /etc/patchy-agent/config.json" />
+      <p>Remove the agent, then revoke it here:</p><CodeBlock code="sudo sh ~/patchy-agent/uninstall.sh" />
+    </dialog>
+  </>;
 }
 
 function AgentPanel({ host, onChange }: { host: Host; onChange: () => void }) {
@@ -101,7 +139,7 @@ function AgentPanel({ host, onChange }: { host: Host; onChange: () => void }) {
   ].join("\n");
   return (
     <section className="card">
-      <h2>Agent</h2>
+      <div className="card-head"><h2>Agent</h2><AgentHelp /></div>
       {a ? (
         <KV rows={[
           ["State", <AgentBadge a={a} outdated={host.agent_outdated} />], ["Token ends", <code>…{a.token_hint}</code>], ["Created", fmtDate(a.created_at)],
@@ -109,7 +147,10 @@ function AgentPanel({ host, onChange }: { host: Host; onChange: () => void }) {
           ["From IP", a.last_ip], ["Agent version", a.agent_version],
         ]} />
       ) : <p className="muted">No agent enrolled. Create a credential, then install the agent on this host.</p>}
-      {host.agent_outdated && <p className="small">A newer agent ships with this server. Re-run the install commands below on the host to update it (rotate the credential to see them again).</p>}
+      {host.agent_outdated && a && !a.revoked_at && !token && <div className="token-box">
+        <div className="alert warn"><p><strong>Update available.</strong> This server bundles a newer agent. Run this on the host; it keeps the existing token and settings, so nothing needs rotating.</p></div>
+        <CodeBlock code={install} />
+      </div>}
       <div className="actions">
         {(!a || a.revoked_at) && <button className="btn primary" onClick={() => issue("agent")}>{a ? "Re-enrol" : "Create agent credential"}</button>}
         {a && !a.revoked_at && <>

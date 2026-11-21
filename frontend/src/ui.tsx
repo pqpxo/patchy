@@ -181,7 +181,7 @@ export function Match({ s }: { s: string }) {
 }
 
 export function Status({ s }: { s: string }) {
-  return <span className={`badge st-${s}`}>{s.replace("_", " ")}</span>;
+  return <span className={`badge st-${s}`}>{s.charAt(0).toUpperCase() + s.slice(1).replace("_", " ")}</span>;
 }
 
 export function Eol({ s, info, quiet = true }: { s: string | null | undefined; info?: Record<string, any> | null; quiet?: boolean }) {
@@ -373,7 +373,8 @@ export async function copyText(text: string): Promise<boolean> {
   ta.value = text;
   ta.setAttribute("readonly", "");
   ta.className = "offscreen";
-  document.body.appendChild(ta);
+  // An open modal <dialog> makes the rest of the page inert, so the textarea must live inside it.
+  (document.querySelector("dialog[open]") ?? document.body).appendChild(ta);
   ta.select();
   let ok = false;
   try { ok = document.execCommand("copy"); } catch { ok = false; }
