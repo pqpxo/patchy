@@ -76,6 +76,8 @@ class AssetIn(In):
     install_path: Annotated[str | None, StringConstraints(max_length=1024)] = None
     repository_url: Annotated[str | None, StringConstraints(strip_whitespace=True, max_length=300)] = None
     branch: Annotated[str | None, StringConstraints(strip_whitespace=True, max_length=200)] = None
+    cpe: Annotated[str | None, StringConstraints(strip_whitespace=True, to_lower=True, max_length=200,
+                                                 pattern=r"^[A-Za-z0-9_.\-]+:[A-Za-z0-9_.\-]+$")] = None
     notes: Notes = None
 
     _v_ip = field_validator("host_ip", "listen_ip")(lambda cls, v: _ip(v))
@@ -133,6 +135,9 @@ class ComponentOut(Out):
     missing_since: datetime | None
     last_scanned_at: datetime | None
     vuln_checked_at: datetime | None
+    cpe: str | None = None
+    eol_state: str | None = None
+    eol: dict | None = None
     created_at: datetime
     updated_at: datetime
     check_state: str = "unknown"
@@ -166,6 +171,8 @@ class AdvisoryOut(Out):
     kev_date_added: str | None
     kev_due_date: str | None
     kev_required_action: str | None
+    epss: float | None = None
+    epss_percentile: float | None = None
     fetched_at: datetime
 
 
@@ -218,7 +225,10 @@ class HostOut(Out):
     ip: str | None
     reported_hostname: str | None
     os_name: str | None
+    os_id: str | None = None
     os_version: str | None
+    os_eol_state: str | None = None
+    os_eol: dict | None = None
     kernel: str | None
     arch: str | None
     notes: str | None
@@ -226,6 +236,7 @@ class HostOut(Out):
     last_report_at: datetime | None
     created_at: datetime
     agent: AgentOut | None = None
+    agent_outdated: bool = False
     component_count: int = 0
     open_findings: int = 0
 
@@ -265,6 +276,9 @@ class RepoOut(Out):
     component_count: int = 0
     open_findings: int = 0
     last_scan_status: str | None = None
+    dependabot_total: int | None = None
+    dependabot_only: int | None = None
+    dependabot_error: str | None = None
 
 
 class ScanRunOut(Out):
@@ -286,6 +300,10 @@ class ScanRunOut(Out):
 
 class FeedOut(BaseModel):
     source: str
+    label: str = ""
+    about: str = ""
+    hours: int = 0
+    unavailable: str | None = None
     enabled: bool
     last_attempt_at: datetime | None
     last_success_at: datetime | None
@@ -303,3 +321,20 @@ class AuditOut(Out):
     target_id: str | None
     detail: dict | None
     ip: str | None
+
+
+class SourceIn(In):
+    enabled: bool | None = None
+    hours: int | None = None
+
+    @field_validator("hours")
+    @classmethod
+    def _hours(cls, v):
+        from .sources import HOUR_CHOICES
+        if v is not None and v not in HOUR_CHOICES:
+            raise ValueError(f"hours must be one of {', '.join(map(str, HOUR_CHOICES))}")
+        return v
+
+
+class RefreshIn(In):
+    sources: list[Literal["osv", "kev", "nvd_cpe", "eol", "epss", "nvd", "dependabot"]] | None = None

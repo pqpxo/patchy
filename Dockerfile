@@ -16,6 +16,7 @@ COPY backend/requirements.txt ./
 RUN pip install -r requirements.txt
 COPY backend/ ./
 COPY agent/ /srv/patchy/agent/
+COPY CHANGELOG.md /srv/patchy/CHANGELOG.md
 COPY --from=web /web/dist /srv/patchy/frontend/dist
 USER patchy
 EXPOSE 8080

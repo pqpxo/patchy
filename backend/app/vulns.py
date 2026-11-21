@@ -13,14 +13,16 @@ import httpx
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from . import cpe, eol, fixplan, sources
 from . import matching as m
+from . import __version__
 from .config import settings
 from .db import utcnow
 from .models import Advisory, AdvisoryPackage, Component, FeedStatus, Finding, OsvQuery
 from .security import audit, scrub
 
 log = logging.getLogger("patchy.feeds")
-USER_AGENT = "Patchy/0.1 (self-hosted vulnerability tracker)"
+USER_AGENT = f"Patchy/{__version__} (self-hosted vulnerability tracker)"
 
 
 def http_client() -> httpx.Client:
@@ -123,8 +125,9 @@ def upsert_advisory(db: Session, rec: dict, source: str = "osv") -> Advisory:
         adv.cvss_vector = vector[:200] if vector else None
     adv.references = [{"type": r.get("type"), "url": r.get("url")} for r in rec.get("references") or []
                       if str(r.get("url", "")).startswith(("https://", "http://"))][:100]
+    keep_cpe = [a for a in adv.affected or [] if (a.get("package") or {}).get("ecosystem") == cpe.ECOSYSTEM]
     adv.affected = [{k: a.get(k) for k in ("package", "ranges", "versions") if a.get(k)}
-                    for a in rec.get("affected") or []]
+                    for a in rec.get("affected") or []] + keep_cpe
     adv.fetched_at = utcnow()
     db.add(adv)
     db.flush()
@@ -136,8 +139,7 @@ def upsert_advisory(db: Session, rec: dict, source: str = "osv") -> Advisory:
         if key[0] and key[1] and key not in seen:
             seen.add(key)
             db.add(AdvisoryPackage(advisory_id=adv.id, ecosystem=key[0][:64], name=key[1][:300]))
-    kev = (db.get(FeedStatus, "kev").detail or {}).get("entries", {}) if db.get(FeedStatus, "kev") else {}
-    _apply_kev(adv, kev)
+    _apply_kev(adv, kev_entries(db))
     return adv
 
 
@@ -188,6 +190,11 @@ def _safe(fn, arg):
 
 # ---------- KEV ----------
 
+def kev_entries(db: Session) -> dict:
+    f = db.get(FeedStatus, "kev")
+    return (f.detail or {}).get("entries", {}) if f else {}
+
+
 def _apply_kev(adv: Advisory, entries: dict) -> None:
     hit = next((entries[c] for c in adv.cve_ids or [] if c in entries), None)
     adv.kev = bool(hit)
@@ -227,20 +234,38 @@ def refresh_nvd(db: Session, client: httpx.Client, sleep=time.sleep) -> dict:
         r = client.get(settings.nvd_api, params={"cveId": adv.cve_ids[0]}, headers=headers)
         r.raise_for_status()
         vulns = r.json().get("vulnerabilities") or []
-        metrics = (vulns[0]["cve"].get("metrics") or {}) if vulns else {}
-        for key in ("cvssMetricV40", "cvssMetricV31", "cvssMetricV30"):
-            if metrics.get(key):
-                d = metrics[key][0]["cvssData"]
-                adv.cvss_score = d.get("baseScore")
-                adv.cvss_vector = d.get("vectorString")
-                adv.severity = m.severity_from_score(adv.cvss_score)
-                adv.severity_source = "NVD"
-                break
+        score, vector = cpe.nvd_metrics(vulns[0]["cve"]) if vulns else (None, None)
+        if score is not None:
+            adv.cvss_score, adv.cvss_vector = score, (vector or "")[:200] or None
+            adv.severity, adv.severity_source = m.severity_from_score(score), "NVD"
         adv.nvd_checked_at = utcnow()
         done += 1
         sleep(delay)
     db.flush()
     return {"nvd_lookups": done}
+
+
+# ---------- EPSS ----------
+
+def refresh_epss(db: Session, client: httpx.Client, only_missing: bool = False) -> dict:
+    """EPSS for CVEs behind current findings, 100 CVEs per request."""
+    q = select(Advisory).join(Finding).where(Finding.currently_matching.is_(True)).distinct()
+    if only_missing:
+        q = q.where(Advisory.epss.is_(None))
+    advs = [a for a in db.scalars(q).all() if a.cve_ids]
+    cves = sorted({c for a in advs for c in a.cve_ids})
+    scores = {}
+    for i in range(0, len(cves), 100):
+        r = client.get(settings.epss_api, params={"cve": ",".join(cves[i:i + 100]), "limit": 100})
+        r.raise_for_status()
+        for row in r.json().get("data") or []:
+            scores[row["cve"]] = (float(row["epss"]), float(row["percentile"]))
+    for a in advs:
+        best = max((scores[c] for c in a.cve_ids if c in scores), default=None)
+        if best:
+            a.epss, a.epss_percentile = best
+    db.flush()
+    return {"cves": len(cves), "scored": len(scores)}
 
 
 # ---------- matching / findings ----------
@@ -259,8 +284,8 @@ def remediation_text(c: Component, adv: Advisory, fixed: list[str], ranges: list
         target = ", ".join(newer[:5])
         lines.append(f"The advisory lists fixed version(s): {target}. Upgrade {name} to a fixed version "
                      "that matches your release line, or later.")
-        binaries = (c.details or {}).get("binaries") or [c.name]
-        cmd = {
+        binaries = [b for b in (c.details or {}).get("binaries") or [c.name] if fixplan.safe(b)]
+        cmd = None if not fixplan.safe(name, newer[0]) else {
             "PyPI": f"pip install --upgrade '{name}>={newer[0]}' (then update the pinned version in your manifest)",
             "npm": f"npm install {name}@{newer[0]} (then commit the updated lockfile)",
             "Go": f"go get {name}@{newer[0] if newer[0].startswith('v') else 'v' + newer[0]} && go mod tidy",
@@ -277,6 +302,9 @@ def remediation_text(c: Component, adv: Advisory, fixed: list[str], ranges: list
     else:
         lines.append("The advisory does not list a fixed version. Follow the advisory link for "
                      "mitigations or vendor guidance; Patchy will not guess a fix.")
+    if not m.supports_osv(c.ecosystem):
+        lines.append("This match comes from NVD product data. If the software was installed from your distro's "
+                     "packages, check the distro security tracker: the fix may already be backported.")
     if adv.kev and adv.kev_required_action:
         lines.append(f"CISA KEV required action: {adv.kev_required_action}")
     lines.append("Test updates before deploying. Patchy cannot guarantee an update is safe or complete.")
@@ -293,7 +321,10 @@ def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
     now = utcnow()
     cache = {(o.ecosystem, o.name, o.version): o for o in db.scalars(select(OsvQuery))}
     stats = {"components": 0, "new": 0, "auto_resolved": 0, "reopened": 0}
-    for c in db.scalars(q).all():
+    comps = db.scalars(q).all()
+    pkgs = eol.host_packages(db, [c.host_id for c in comps if c.host_id])
+    eol_data = eol.load(db)
+    for c in comps:
         stats["components"] += 1
         existing = {f.advisory_id: f for f in db.scalars(select(Finding).where(Finding.component_id == c.id))}
         matched = {}
@@ -311,6 +342,17 @@ def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
                                  "exact" if version else c.version_status, osv_hit)
                 if res and res.status != m.NOT_AFFECTED:
                     matched[adv.id] = (adv, res)
+        elif c.missing_since is None:
+            checked = None
+            for product, version in cpe.targets_for(c, pkgs, eol_data):
+                cached = cache.get((cpe.ECOSYSTEM, product, version))
+                if not cached:
+                    continue
+                checked = max(checked or cached.queried_at, cached.queried_at)
+                for adv in db.scalars(select(Advisory).where(Advisory.id.in_(cached.vuln_ids or []),
+                                                             Advisory.withdrawn.is_(None))):
+                    matched.setdefault(adv.id, (adv, cpe.match(c, adv, version, product)))
+            c.vuln_checked_at = checked
         for adv_id, (adv, res) in matched.items():
             f = existing.get(adv_id)
             if not f:
@@ -336,61 +378,82 @@ def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
                 audit(db, "system", "finding.auto_resolved", "finding", f.id, {"reason": why})
                 stats["auto_resolved"] += 1
     db.flush()
+    stats["end_of_life"] = eol.apply(db, comps)
     return stats
 
 
 # ---------- orchestration ----------
 
-def run_feed_refresh(db: Session, client: httpx.Client, mode: str = "full") -> dict:
-    """Refresh each enabled source independently; one failing source does not block the others."""
+def run_feed_refresh(db: Session, client: httpx.Client, mode: str = "full", only: list[str] | None = None,
+                     gh_client: httpx.Client | None = None) -> dict:
+    """Refresh each requested, enabled source independently; one failing source does not block the others.
+
+    mode "pending" only looks up new inventory (after a scan or agent report) and doesn't count as a
+    refresh, so freshness timestamps stay honest.
+    """
+    sched = sources.schedule(db)
     summary, failed = {"mode": mode}, []
-    if mode == "pending":
-        # Only new inventory; doesn't count as a feed refresh, so freshness timestamps stay honest.
-        if settings.osv_enabled:
-            try:
-                summary["osv"] = refresh_osv(db, client, "pending")
-                db.commit()
-            except (httpx.HTTPError, ValueError, KeyError) as e:
-                db.rollback()
-                summary["osv_error"] = scrub(f"{type(e).__name__}: {e}")
-                failed.append("osv")
-        summary["match"] = rematch(db)
-        db.commit()
-        summary["failed_sources"] = failed
-        return summary
-    steps = [("kev", settings.kev_enabled and mode == "full", lambda: refresh_kev(db, client)),
-             ("osv", settings.osv_enabled, lambda: refresh_osv(db, client, mode))]
-    for source, enabled, fn in steps:
-        if not enabled:
-            continue
+
+    def step(source, fn, record=True):
         f = feed(db, source)
-        f.last_attempt_at = utcnow()
         try:
             summary[source] = fn()
-            f.last_success_at, f.last_error = utcnow(), None
-            if source == "osv":
-                f.detail = summary[source]
+            if record:
+                f.last_success_at, f.last_error = utcnow(), None
+                if source not in ("kev", "eol"):  # those keep their catalogue in detail
+                    f.detail = summary[source]
             db.commit()
-        except (httpx.HTTPError, ValueError, KeyError) as e:
+        except Exception as e:  # noqa: BLE001 - record any source failure and carry on with the others
             db.rollback()
-            f = feed(db, source)
-            f.last_attempt_at, f.last_error = utcnow(), scrub(f"{type(e).__name__}: {e}")
-            db.commit()
+            log.warning("%s refresh failed: %s", source, type(e).__name__)
+            if record:
+                f = feed(db, source)
+                f.last_error = scrub(f"{type(e).__name__}: {e}")[:500]
+                db.commit()
             failed.append(source)
+
+    if mode == "pending":
+        if sched["osv"]["enabled"]:
+            step("osv", lambda: refresh_osv(db, client, "pending"), record=False)
+        if sched["nvd_cpe"]["enabled"]:
+            step("nvd_cpe", lambda: cpe.refresh_cpe(db, client, "pending"), record=False)
+        summary["match"] = rematch(db)
+        db.commit()
+        if sched["epss"]["enabled"]:
+            step("epss", lambda: refresh_epss(db, client, only_missing=True), record=False)
+        summary["failed_sources"] = failed
+        return summary
+
+    wanted = [s for s in (only or sources.ORDER) if s in sched and sched[s]["enabled"]]
+    now = utcnow()
+    for s in wanted:  # mark attempts up front so a crash can't make the scheduler retry in a tight loop
+        feed(db, s).last_attempt_at = now
+    db.commit()
+    runners = {
+        "kev": lambda: refresh_kev(db, client),
+        "osv": lambda: refresh_osv(db, client, mode),
+        "nvd_cpe": lambda: cpe.refresh_cpe(db, client, "full"),
+        "eol": lambda: eol.refresh_eol(db, client),
+        "epss": lambda: refresh_epss(db, client),
+        "nvd": lambda: refresh_nvd(db, client),
+        "dependabot": lambda: _dependabot(db, gh_client),
+    }
+    for s in [s for s in wanted if s in sources.BEFORE_MATCH]:
+        step(s, runners[s])
     summary["match"] = rematch(db)
     db.commit()
-    if settings.nvd_enabled and mode == "full":
-        f = feed(db, "nvd")
-        f.last_attempt_at = utcnow()
-        try:
-            summary["nvd"] = refresh_nvd(db, client)
-            f.last_success_at, f.last_error = utcnow(), None
-        except (httpx.HTTPError, ValueError, KeyError) as e:
-            f.last_error = scrub(f"{type(e).__name__}: {e}")
-            failed.append("nvd")
-        db.commit()
-    summary["failed_sources"] = failed
+    for s in [s for s in wanted if s not in sources.BEFORE_MATCH]:
+        step(s, runners[s])
+    summary["sources"], summary["failed_sources"] = wanted, failed
     return summary
+
+
+def _dependabot(db: Session, gh_client: httpx.Client | None) -> dict:
+    from . import dependabot, repo_scanner
+    if gh_client is not None:
+        return dependabot.refresh_dependabot(db, gh_client)
+    with repo_scanner.github_client() as client:
+        return dependabot.refresh_dependabot(db, client)
 
 
 def counts_by_severity(db: Session) -> dict:

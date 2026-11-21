@@ -1,4 +1,8 @@
 """Shared query helpers and ORM -> response conversion."""
+import functools
+import pathlib
+import re
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -7,6 +11,16 @@ from ..models import Component, Finding, Advisory
 from ..schemas import AdvisoryOut, ComponentOut, FindingOut
 
 OPEN = ("open", "acknowledged")
+AGENT_SCRIPT = pathlib.Path(__file__).resolve().parents[3] / "agent" / "patchy_agent.py"
+
+
+@functools.lru_cache(maxsize=1)
+def bundled_agent_version() -> str | None:
+    try:
+        found = re.search(r'^VERSION = "([^"]+)"', AGENT_SCRIPT.read_text(encoding="utf-8"), re.M)
+    except OSError:
+        return None
+    return found.group(1) if found else None
 
 
 def paginate(db: Session, query, page: int, page_size: int):
@@ -41,8 +55,8 @@ def check_state(c: Component, open_findings: int, stale: bool) -> str:
         return "not_present"
     if open_findings:
         return "vulnerable"
-    if not m.supports_osv(c.ecosystem):
-        return "not_checkable"
+    if not m.supports_osv(c.ecosystem) and not c.vuln_checked_at:
+        return "not_checkable"  # neither OSV nor an NVD product match covers it
     if c.version_status != "exact" or not (c.source_version or c.version):
         return "version_unknown"
     if not c.vuln_checked_at:

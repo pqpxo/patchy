@@ -63,6 +63,8 @@ class Host(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
     last_report_at: Mapped[datetime | None] = mapped_column(TS)
+    os_eol_state: Mapped[str | None] = mapped_column(String(16))  # eol|eol_soon|supported, None = unknown
+    os_eol: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
     agent: Mapped["Agent | None"] = relationship(back_populates="host", cascade="all, delete-orphan")
 
@@ -95,6 +97,7 @@ class Repository(Base):
     last_revision: Mapped[str | None] = mapped_column(String(64))
     last_scanned_at: Mapped[datetime | None] = mapped_column(TS)
     languages: Mapped[dict | None] = mapped_column(JSON)
+    dependabot: Mapped[dict | None] = mapped_column(JSON)  # latest Dependabot alerts cross-check
     notes: Mapped[str | None] = mapped_column(Text)
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
@@ -149,6 +152,9 @@ class Component(Base):
     last_scan_run_id: Mapped[int | None] = mapped_column(ForeignKey("scan_runs.id", ondelete="SET NULL"))
     last_scanned_at: Mapped[datetime | None] = mapped_column(TS)
     vuln_checked_at: Mapped[datetime | None] = mapped_column(TS)
+    cpe: Mapped[str | None] = mapped_column(String(200))  # optional "vendor:product" for NVD matching
+    eol_state: Mapped[str | None] = mapped_column(String(16), index=True)  # eol|eol_soon|supported
+    eol: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(TS, default=utcnow, onupdate=utcnow)
     host: Mapped[Host | None] = relationship()
@@ -217,6 +223,8 @@ class Advisory(Base):
     kev_due_date: Mapped[str | None] = mapped_column(String(16))
     kev_required_action: Mapped[str | None] = mapped_column(Text)
     nvd_checked_at: Mapped[datetime | None] = mapped_column(TS)
+    epss: Mapped[float | None] = mapped_column(Float)  # FIRST EPSS probability, 0-1
+    epss_percentile: Mapped[float | None] = mapped_column(Float)
     fetched_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
 
 
@@ -274,6 +282,14 @@ class FeedStatus(Base):
     last_success_at: Mapped[datetime | None] = mapped_column(TS)
     last_error: Mapped[str | None] = mapped_column(Text)
     detail: Mapped[dict | None] = mapped_column(JSON)
+
+
+class AppSetting(Base):
+    """Settings changed from the UI (feed schedules). Secrets stay in environment variables."""
+    __tablename__ = "app_settings"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(TS, default=utcnow, onupdate=utcnow)
 
 
 class AuditLog(Base):
