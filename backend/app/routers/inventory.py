@@ -40,11 +40,21 @@ def _404(obj, what="Not found."):
 
 
 def _open_counts(db, column, ids):
+    """{id: {"total": n, "<severity>": n, "kev": n}} of open, currently matching findings."""
     if not ids:
         return {}
-    rows = db.execute(select(column, func.count()).select_from(Finding).join(Component).where(
-        column.in_(ids), Finding.status.in_(OPEN), Finding.currently_matching.is_(True)).group_by(column)).all()
-    return dict(rows)
+    rows = db.execute(select(column, Advisory.severity, Advisory.kev, func.count()).select_from(Finding)
+                      .join(Component).join(Advisory).where(
+        column.in_(ids), Finding.status.in_(OPEN), Finding.currently_matching.is_(True))
+        .group_by(column, Advisory.severity, Advisory.kev)).all()
+    out: dict = {}
+    for key, sev, kev, n in rows:
+        e = out.setdefault(key, {"total": 0})
+        e["total"] += n
+        e[sev or "unknown"] = e.get(sev or "unknown", 0) + n
+        if kev:
+            e["kev"] = e.get("kev", 0) + n
+    return out
 
 
 def _comp_counts(db, column, ids):
@@ -199,7 +209,8 @@ def _host_out(db, h: Host, comps=None, opens=None) -> HostOut:
                                    "agent_outdated": bool(h.agent and h.agent.agent_version and not h.agent.revoked_at
                                                           and h.agent.agent_version != bundled_agent_version()),
                                    "component_count": (comps or {}).get(h.id, 0),
-                                   "open_findings": (opens or {}).get(h.id, 0)})
+                                   "open_findings": (opens or {}).get(h.id, {}).get("total", 0),
+                                   "exposure": (opens or {}).get(h.id)})
 
 
 @router.get("/hosts", response_model=Page[HostOut])
@@ -319,7 +330,8 @@ def _repo_out(db, r: Repository, comps=None, opens=None) -> RepoOut:
     dep = r.dependabot or {}
     return RepoOut.model_validate({**{k: getattr(r, k) for k in RepoOut.model_fields if hasattr(r, k)},
                                    "component_count": (comps or {}).get(r.id, 0),
-                                   "open_findings": (opens or {}).get(r.id, 0), "last_scan_status": last,
+                                   "open_findings": (opens or {}).get(r.id, {}).get("total", 0),
+                                   "exposure": (opens or {}).get(r.id), "last_scan_status": last,
                                    "dependabot_total": dep.get("total") if dep and not dep.get("error") else None,
                                    "dependabot_only": (dep.get("total", 0) - dep.get("also_in_patchy", 0))
                                    if dep and not dep.get("error") else None,

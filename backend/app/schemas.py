@@ -239,6 +239,7 @@ class HostOut(Out):
     agent_outdated: bool = False
     component_count: int = 0
     open_findings: int = 0
+    exposure: dict[str, int] | None = None
 
 
 class ServiceOut(Out):
@@ -275,6 +276,7 @@ class RepoOut(Out):
     created_at: datetime
     component_count: int = 0
     open_findings: int = 0
+    exposure: dict[str, int] | None = None
     last_scan_status: str | None = None
     dependabot_total: int | None = None
     dependabot_only: int | None = None
