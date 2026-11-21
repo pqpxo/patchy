@@ -164,14 +164,15 @@ The agent is one Python 3.8+ file using only the standard library ([agent/patchy
 ### Enrol a host
 
 1. In Patchy, go to **Hosts**, add the host, then choose **Create agent credential**. Copy the token; it is shown once.
-2. On the host, download the files from your portal, read them, and install:
+2. On the host, download the files from your portal and install. The host page shows this block with your portal's address and a **Copy** button:
 
 ```bash
-mkdir patchy-agent && cd patchy-agent
+cd ~ && mkdir -p patchy-agent && cd patchy-agent
 for f in patchy_agent.py install.sh uninstall.sh config.example.json; do curl -fsSO https://patchy.example.lan/api/agent/files/$f; done
-less patchy_agent.py install.sh
 sudo sh install.sh https://patchy.example.lan
 ```
+
+To read the scripts first, run `less patchy_agent.py install.sh` (press <kbd>q</kbd> to quit) before the last line.
 
 The installer prompts for the token (input hidden, kept out of shell history), writes `/etc/patchy-agent/config.json` and `/etc/patchy-agent/token` (mode 0640, `root:patchy-agent`), installs a hardened service and timer, checks the credential and sends a first report.
 
