@@ -17,7 +17,7 @@ from . import parsers
 from .config import settings
 from .db import utcnow
 from .inventory import sync_components
-from .models import Repository, ScanRun
+from .models import Component, Repository, ScanRun
 from .security import scrub
 
 OWNER_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
@@ -163,11 +163,13 @@ def scan_repository(db: Session, run: ScanRun, client: httpx.Client, clock=time.
                      "ecosystem": None, "version": None, "version_status": "unknown",
                      "details": {"bytes": size, "note": "from GitHub language statistics"}, "paths": []})
     ids = sync_components(db, run, f"repo:{repo.id}", rows, source="repo", repository_id=repo.id)
+    stored = db.query(Component).filter(Component.repository_id == repo.id, Component.source == "repo",
+                                        Component.missing_since.is_(None)).count()
     repo.languages = languages
     repo.last_revision = sha
     repo.last_scanned_at = utcnow()
     return {"component_ids": ids, "branch": branch, "revision": sha, "tree_truncated": bool(tree.get("truncated")),
-            "manifests": manifests, "components": len(rows), "skipped": skipped[:200],
+            "manifests": manifests, "components": stored, "entries_parsed": len(rows), "skipped": skipped[:200],
             "partial": bool(skipped) or bool(tree.get("truncated"))}
 
 

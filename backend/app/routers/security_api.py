@@ -61,7 +61,8 @@ def list_findings(db: Session = Depends(get_db), _: User = Depends(require_user)
         query = query.where(Finding.currently_matching.is_(True) | Finding.status.in_(["resolved", "false_positive"]))
     col = {"severity": SEV_RANK, "published": Advisory.published, "component": Component.name,
            "status": Finding.status, "detected": Finding.first_detected_at}[sort]
-    query = query.order_by(col.desc() if order == "desc" else col.asc(), Advisory.kev.desc(), Finding.id)
+    match_rank = case({"confirmed": 0, "possible": 1}, value=Finding.match_status, else_=2)
+    query = query.order_by(col.desc() if order == "desc" else col.asc(), Advisory.kev.desc(), match_rank, Finding.id)
     items, total = paginate(db, query, page, page_size)
     return Page(items=[finding_out(f) for f in items], total=total, page=page, page_size=page_size)
 

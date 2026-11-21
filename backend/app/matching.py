@@ -164,6 +164,14 @@ def compare(ecosystem: str, a: str, b: str) -> int | None:
     return c(a, b) if c else None
 
 
+def sort_versions(ecosystem: str, versions) -> list[str]:
+    """Ascending in ecosystem order where Patchy can compare; plain string order otherwise."""
+    versions = list(versions)
+    if all(compare(ecosystem, v, versions[0]) is not None for v in versions):
+        return sorted(versions, key=cmp_to_key(lambda a, b: compare(ecosystem, a, b)))
+    return sorted(versions)
+
+
 # ---------- range evaluation ----------
 
 def in_range(version: str, events: list[dict], cmp: Cmp) -> bool | None:
@@ -246,7 +254,7 @@ def evaluate(affected: list[dict], ecosystem: str, name: str, version: str | Non
         for r in a.get("ranges") or []:
             ranges_txt.append(f"{r.get('type')}: {describe_range(r.get('events') or [])}")
             fixed += [e["fixed"] for e in r.get("events") or [] if "fixed" in e]
-    fixed = sorted(set(fixed))
+    fixed = sort_versions(ecosystem, set(fixed))
 
     if not version or version_status != "exact":
         why = "No version recorded" if not version else f"Only a version constraint is known ({version})"

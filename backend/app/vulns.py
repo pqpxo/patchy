@@ -247,7 +247,12 @@ def refresh_nvd(db: Session, client: httpx.Client, sleep=time.sleep) -> dict:
 def remediation_text(c: Component, adv: Advisory, fixed: list[str], ranges: list[str]) -> str:
     name = c.source_package or c.name
     base = m.ecosystem_base(c.ecosystem or "")
-    newer = [f for f in fixed if c.version and (m.compare(c.ecosystem, f, c.version) or 1) > 0] or fixed
+    current = c.source_version or c.version
+
+    def is_newer(f):
+        r = m.compare(c.ecosystem, f, current) if current else None
+        return r is None or r > 0
+    newer = [f for f in fixed if is_newer(f)] or fixed
     lines = []
     if newer:
         target = ", ".join(newer[:5])

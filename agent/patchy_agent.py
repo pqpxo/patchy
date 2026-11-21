@@ -386,7 +386,7 @@ def _url(cfg, path):
 def read_token(cfg):
     path = cfg["token_file"]
     st = os.stat(path)
-    if st.st_mode & stat.S_IROTH:
+    if os.name == "posix" and st.st_mode & stat.S_IROTH:
         raise SystemExit(f"{path} is world-readable. Run: chmod 640 {path}")
     with open(path, "r", encoding="utf-8") as f:
         token = f.read().strip()

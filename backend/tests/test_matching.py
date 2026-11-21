@@ -126,3 +126,9 @@ def test_cvss3(vector, score):
 def test_severity_never_guessed():
     assert m.severity_from_osv({}) == ("unknown", None, None, None)
     assert m.severity_from_osv({"database_specific": {"severity": "MODERATE"}})[0] == "medium"
+
+
+def test_fixed_versions_sorted_by_version_not_string():
+    aff = [{"package": {"ecosystem": "npm", "name": "x"}, "ranges": [{"type": "SEMVER", "events": [
+        {"introduced": "0"}, {"fixed": "10.0.0"}, {"introduced": "3.0.0"}, {"fixed": "2.5.4"}]}]}]
+    assert m.evaluate(aff, "npm", "x", "1.0.0").fixed_versions == ["2.5.4", "10.0.0"]
