@@ -82,6 +82,25 @@ def ranges_for(cve: dict, product: str) -> list[dict]:
     return out[:50]
 
 
+def covers(r: dict, version: str) -> bool:
+    """Whether one NVD range includes the version. Unparseable comparisons trust NVD's own match."""
+    current = version.split(":")[0]
+
+    def cmp(other):
+        return m.compare("PyPI", current, other.split(":")[0])
+    if "version" in r:
+        c = cmp(r["version"])
+        return c is None or c == 0
+    checks = [("start_incl", lambda c: c >= 0), ("start_excl", lambda c: c > 0),
+              ("end_incl", lambda c: c <= 0), ("end_excl", lambda c: c < 0)]
+    for key, ok in checks:
+        if key in r:
+            c = cmp(r[key])
+            if c is not None and not ok(c):
+                return False
+    return True
+
+
 def describe(r: dict) -> str:
     if "version" in r:
         return f"= {r['version']}"
@@ -149,7 +168,9 @@ def refresh_cpe(db: Session, client: httpx.Client, mode: str = "full", sleep=tim
         ids = []
         for v in data.get("vulnerabilities") or []:
             cve = v.get("cve") or {}
-            if cve.get("id", "").startswith("CVE-"):
+            # NVD also matches CVEs where this product is only the platform (eg a Django flaw "on Python").
+            # Keep a CVE only when the product itself is vulnerable and a range covers this version.
+            if cve.get("id", "").startswith("CVE-") and any(covers(r, version) for r in ranges_for(cve, product)):
                 upsert_cve(db, cve, product)
                 ids.append(cve["id"])
         q = cached.get((product, version)) or OsvQuery(ecosystem=ECOSYSTEM, name=product, version=version)
