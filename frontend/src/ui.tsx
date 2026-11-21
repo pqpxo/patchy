@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import { ApiError } from "./api";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { ApiError, type ScanRun } from "./api";
 import { CHECK_STATES, EOL_STATES, MATCH_STATUS, ago, fmtDate, pct } from "./format";
 import { Icon } from "./icons";
 import { PAGE_SIZES, loadColumns, saveColumns, setPrefs, usePrefs } from "./prefs";
@@ -364,13 +364,61 @@ export function DangerButton({ onConfirm, children, question }: { onConfirm: () 
   return <button className="btn danger" onClick={() => { if (window.confirm(question)) onConfirm(); }}>{children}</button>;
 }
 
+// The Clipboard API only exists on HTTPS and localhost. Plain-HTTP LAN installs fall back to a hidden textarea.
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (window.isSecureContext && navigator.clipboard) { await navigator.clipboard.writeText(text); return true; }
+  } catch { /* fall through */ }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.className = "offscreen";
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch { ok = false; }
+  ta.remove();
+  return ok;
+}
+
 export function Copy({ text, label = "Copy" }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
   return (
     <button className="btn small ghost" type="button" aria-label={label} onClick={async () => {
-      try { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1500); }
-      catch { toast("Copy needs HTTPS or localhost. Select the text instead.", "info"); }
+      if (await copyText(text)) { setDone(true); setTimeout(() => setDone(false), 1500); }
+      else toast("Couldn't copy. Select the text and copy it instead.", "info");
     }}><Icon name={done ? "check" : "copy"} size={14} />{done ? "Copied" : label}</button>
+  );
+}
+
+const ACTIVE = (r?: ScanRun | null) => !!r && (r.status === "queued" || r.status === "running");
+
+// Live status of the latest scan or refresh started from this page: progress while it runs, then the result.
+export function RunBanner({ run, what = "Scan", onFinished }: { run?: ScanRun | null; what?: string; onFinished?: (r: ScanRun) => void }) {
+  const seen = useRef<{ id: number; active: boolean } | null>(null);
+  useEffect(() => {
+    if (!run) return;
+    const before = seen.current;
+    if (before && before.id === run.id && before.active && !ACTIVE(run)) {
+      toast(`${what} #${run.id} ${run.status === "succeeded" ? "finished" : run.status}.`, run.status === "failed" ? "bad" : "good");
+      onFinished?.(run);
+    }
+    seen.current = { id: run.id, active: ACTIVE(run) };
+  }, [run, what, onFinished]);
+  if (!run) return null;
+  const recent = run.finished_at && Date.now() - new Date(run.finished_at).getTime() < 10 * 60 * 1000;
+  if (!ACTIVE(run) && !recent) return null;
+  const tone = ACTIVE(run) ? "info" : run.status === "failed" ? "bad" : run.status === "partial" ? "warn" : "info";
+  return (
+    <div className={`alert ${tone} run`} role="status" aria-live="polite">
+      {ACTIVE(run) ? <span className="spin" aria-hidden="true" /> : <Status s={run.status} />}
+      <span className="grow">
+        <strong>{what} #{run.id}</strong>{" "}
+        {ACTIVE(run) ? (run.status === "queued" ? "is queued…" : run.progress || "is running…")
+          : <>{run.status === "succeeded" ? "finished" : run.status} <When iso={run.finished_at} />{run.error ? `: ${run.error}` : "."}</>}
+      </span>
+      <Link to={`/scans/${run.id}`} className="small">Details</Link>
+    </div>
   );
 }
 

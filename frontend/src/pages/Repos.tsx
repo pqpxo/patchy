@@ -5,7 +5,7 @@ import { safeUrl } from "../format";
 import { usePrefs } from "../prefs";
 import { AssetTable, FindingTable } from "../tables";
 import {
-  DangerButton, DataTable, Empty, ErrorBox, Exposure, Field, KV, Link, PageHead, Pager, Sev, Skeleton, Status, Tabs, When,
+  DangerButton, DataTable, Empty, ErrorBox, Exposure, Field, KV, Link, PageHead, Pager, RunBanner, Sev, Skeleton, Status, Tabs, When,
   errText, fieldErrors, navigate, toast, useLoad, useQueryParam, useSort, type Col,
 } from "../ui";
 import { FixPlan } from "./Fix";
@@ -136,6 +136,7 @@ export function RepoDetailPage({ id }: { id: number }) {
           <DangerButton question={`Stop tracking ${r.owner}/${r.name}? Its assets and findings are deleted.`}
             onConfirm={async () => { await del(`/api/repositories/${r.id}`); toast("Repository removed."); navigate("/repositories"); }}>Delete</DangerButton>
         </>} />
+      <RunBanner run={last} what="Scan" />
       <Tabs value={t} onChange={setTab} tabs={[
         ["overview", "Overview"], ["assets", <>Assets <span className="num">{r.component_count}</span></>],
         ["findings", <>Findings <span className="num">{r.open_findings}</span></>], ["fix", "How to fix"],

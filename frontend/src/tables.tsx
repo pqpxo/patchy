@@ -38,7 +38,7 @@ export function AssetTable({ items, sort, tools, table = "assets", where = true 
 const findingCols: Col<Finding>[] = [
   { id: "severity", label: "Severity", sort: "severity", first: "desc", fixed: true, cell: (f) => <Sev s={f.advisory.severity} /> },
   { id: "advisory", label: "Advisory", fixed: true, cell: (f) => <>
-    <Link to={`/vulnerabilities/${f.id}`}>{f.advisory.id}</Link> <Kev on={f.advisory.kev} />
+    <Link to={`/vulnerabilities/${f.id}`} className="id">{f.advisory.id}</Link> <Kev on={f.advisory.kev} />
     {f.advisory.summary && <div className="cell-sub clamp">{f.advisory.summary}</div>}
   </> },
   { id: "asset", label: "Asset", sort: "component", cell: (f) => <>

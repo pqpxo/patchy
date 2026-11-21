@@ -105,6 +105,7 @@ kbd { font-size: 0.75rem; border: 1px solid var(--rule-2); border-bottom-width: 
 .token-box .alert { margin: 0; }
 .icon { flex: none; vertical-align: -0.15em; }
 .skip { position: absolute; left: -999px; }
+.offscreen { position: fixed; left: -9999px; top: 0; opacity: 0; }
 .skip:focus { left: 16px; top: 16px; background: var(--panel); padding: 8px; z-index: 50; }
 ::selection { background: var(--signal-wash); }
 
@@ -172,13 +173,13 @@ input:disabled, select:disabled { opacity: 0.6; }
 .search-btn:hover { border-color: var(--rule-2); color: var(--ink-2); }
 .search-btn kbd { margin-left: auto; }
 .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--rule); padding-top: 10px; }
-.side-foot .who { font-size: 0.85rem; color: var(--ink-3); padding: 0 8px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.side-foot .row { display: flex; gap: 2px; }
+.side-foot .who { font-size: 0.85rem; color: var(--ink-3); padding: 0 8px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.side-foot .row { display: flex; gap: 2px; justify-content: center; }
 .rail .brand span:not(.logo), .rail .nav-item .label, .rail .nav-item .count, .rail .search-btn .label, .rail .search-btn kbd, .rail .who { display: none; }
 .rail .nav-item, .rail .search-btn { justify-content: center; }
 .rail .side-foot .row { flex-direction: column; align-items: center; }
 .topbar { display: none; }
-main#main { padding: 24px 32px 48px; min-width: 0; max-width: 1480px; width: 100%; }
+main#main { padding: 24px 32px 48px; min-width: 0; max-width: 1480px; width: 100%; margin-inline: auto; }
 main#main:focus { outline: none; }
 
 /* ---------- page furniture ---------- */
@@ -291,7 +292,8 @@ main#main:focus { outline: none; }
 .table tbody tr:last-child td { border-bottom: 0; }
 .table th { position: sticky; top: 0; z-index: 1; background: var(--panel); color: var(--ink-3); font-weight: 600; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap; border-bottom-color: var(--rule-2); }
 .table th.r, .table td.r { text-align: right; font-variant-numeric: tabular-nums; }
-.table .ver, .table td > a:first-child { white-space: nowrap; }
+.table td { overflow-wrap: anywhere; }
+.table .id { white-space: nowrap; }
 .table tbody tr:hover td { background: color-mix(in srgb, var(--raised) 60%, transparent); }
 .table.compact td, .table.compact th { padding: 5px 8px; }
 .table tr.dim td { opacity: 0.55; }
@@ -417,6 +419,23 @@ details[open] > summary { margin-bottom: 6px; }
 .palette li button[aria-selected="true"] { background: var(--signal-wash); color: var(--ink); }
 .palette li .kind { margin-left: auto; font-size: 0.78rem; color: var(--ink-4); }
 .palette-none { padding: 10px; }
+/* Live run status */
+.run { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.run .grow { min-width: 12rem; }
+.spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--rule-2); border-top-color: var(--signal); animation: turn 0.8s linear infinite; flex: none; }
+@keyframes turn { to { transform: rotate(360deg); } }
+/* Host overview: three equal cards; listening ports scrolls instead of stretching the row */
+.host-grid { display: grid; gap: var(--gap); margin-bottom: var(--gap); grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.host-grid > .card { margin: 0; }
+.host-grid > .wide { grid-column: 1 / -1; }
+.card.fill { contain: size; min-height: 18rem; display: flex; flex-direction: column; }
+.fill-body { flex: 1; min-height: 0; overflow: auto; margin: 0 -18px; padding: 0 18px; }
+@media (max-width: 1200px) { .host-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 860px) {
+  .host-grid { grid-template-columns: 1fr; }
+  .card.fill { contain: none; min-height: 0; }
+  .fill-body { max-height: 24rem; }
+}
 .palette .hint { padding: 8px 14px; border-top: 1px solid var(--rule); font-size: 0.8rem; color: var(--ink-4); display: flex; gap: 14px; }
 .toasts { position: fixed; right: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 70; width: min(380px, calc(100vw - 32px)); }
 .toast { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; background: var(--raised); border: 1px solid var(--rule-2); border-left: 3px solid var(--good); border-radius: var(--r1); padding: 10px 10px 10px 14px; box-shadow: 0 10px 30px rgb(0 0 0 / 0.25); animation: rise 160ms ease-out; color: var(--ink); }

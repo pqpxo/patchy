@@ -95,9 +95,8 @@ function AgentPanel({ host, onChange }: { host: Host; onChange: () => void }) {
     } catch (e) { setErr(errText(e)); }
   };
   const install = [
-    `mkdir patchy-agent && cd patchy-agent`,
+    `cd ~ && mkdir -p patchy-agent && cd patchy-agent`,
     ...["patchy_agent.py", "install.sh", "uninstall.sh", "config.example.json"].map((f) => `curl -fsSO ${origin}/api/agent/files/${f}`),
-    `less patchy_agent.py install.sh   # review before running`,
     `sudo sh install.sh ${origin}`,
   ].join("\n");
   return (
@@ -126,8 +125,9 @@ function AgentPanel({ host, onChange }: { host: Host; onChange: () => void }) {
         <div className="token-box">
           <div className="alert warn"><p><strong>Copy this token now.</strong> It is shown once; Patchy stores only a hash.</p></div>
           <div className="row"><code className="block grow">{token}</code><Copy text={token} /></div>
-          <p className="small">Install on the host (needs python3 and systemd). The installer prompts for the token so it stays out of shell history:</p>
+          <p className="small">Install on the host (needs python3 and systemd). Paste the whole block; the installer then asks for the token, so it stays out of shell history:</p>
           <CodeBlock code={install} />
+          <p className="small muted">To read the scripts before installing, run the first five lines, then <code>less patchy_agent.py install.sh</code> (press <kbd>q</kbd> to quit), then the last line.</p>
           <p className="small">Test without sending real data: <code>python3 patchy_agent.py --dry-run --config /etc/patchy-agent/config.json</code>.
             For a plain-HTTP server the installer asks before allowing it.</p>
         </div>
@@ -168,7 +168,7 @@ export function HostDetailPage({ id }: { id: number }) {
         ["overview", "Overview"], ["assets", <>Assets <span className="num">{h.component_count}</span></>],
         ["findings", <>Findings <span className="num">{h.open_findings}</span></>], ["fix", "How to fix"], ["reports", "Reports"],
       ]} />
-      {t === "overview" && <div className="grid two">
+      {t === "overview" && <div className="host-grid">
         <section className="card">
           <h2>Host</h2>
           <KV rows={[["IP", h.ip], ["Reported hostname", h.reported_hostname], ["OS version", h.os_version], ["Kernel", h.kernel],
@@ -178,17 +178,19 @@ export function HostDetailPage({ id }: { id: number }) {
           {h.notes && <p className="pre">{h.notes}</p>}
         </section>
         <AgentPanel host={h} onChange={reload} />
-        <section className="card">
-          <h2>Listening ports</h2>
-          {ports.length === 0 ? <p className="muted">None reported.</p> : (
-            <div className="table-wrap"><table className="table compact"><thead><tr><th>Address</th><th>Protocol</th><th>Process</th></tr></thead>
-              <tbody>{ports.map((s, i) => <tr key={i}><td className="num">{s.listen_ip}:{s.port}</td><td>{s.protocol}</td>
-                <td>{s.name ?? <span className="muted" title="The agent runs unprivileged and can't see other users' processes">unknown</span>}</td></tr>)}</tbody></table></div>
-          )}
-          <h2 className="gap-top">Running services</h2>
-          {units.length === 0 ? <p className="muted">None reported.</p> : <p className="small">{units.map((u) => u.name).join(", ")}</p>}
+        <section className="card fill">
+          <h2>Listening ports <span className="num muted">{ports.length}</span></h2>
+          <div className="fill-body">
+            {ports.length === 0 ? <p className="muted">None reported.</p> : (
+              <table className="table compact"><thead><tr><th>Address</th><th>Protocol</th><th>Process</th></tr></thead>
+                <tbody>{ports.map((s, i) => <tr key={i}><td className="num">{s.listen_ip}:{s.port}</td><td>{s.protocol}</td>
+                  <td>{s.name ?? <span className="muted" title="The agent runs unprivileged and can't see other users' processes">unknown</span>}</td></tr>)}</tbody></table>
+            )}
+            <h2 className="gap-top">Running services</h2>
+            {units.length === 0 ? <p className="muted">None reported.</p> : <p className="small">{units.map((u) => u.name).join(", ")}</p>}
+          </div>
         </section>
-        <section className="card">
+        <section className="card wide">
           <h2>Application directories</h2>
           <p className="muted small">Names only, from directories listed in the agent config. Sensitive names are excluded.</p>
           {data.paths.length === 0 ? <p className="muted">No directories configured.</p> : (
