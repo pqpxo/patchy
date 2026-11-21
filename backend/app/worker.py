@@ -5,15 +5,13 @@ import logging
 import pathlib
 import signal
 import time
-from datetime import timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from . import repo_scanner, vulns
-from .config import settings
+from . import repo_scanner, sources, vulns
 from .db import SessionLocal, utcnow
-from .models import FeedStatus, ScanRun
+from .models import ScanRun
 
 log = logging.getLogger("patchy.worker")
 HEARTBEAT = pathlib.Path("/tmp/patchy-worker-heartbeat")
@@ -62,7 +60,8 @@ def execute(db: Session, run: ScanRun, gh_client=None, feed_client=None) -> None
             enqueue(db, "feed", params={"mode": "pending"})
         elif run.kind == "feed":
             with (feed_client or vulns.http_client()) as client:
-                summary = vulns.run_feed_refresh(db, client, (run.params or {}).get("mode", "full"))
+                params = run.params or {}
+                summary = vulns.run_feed_refresh(db, client, params.get("mode", "full"), params.get("only"))
             run.summary = summary
             run.status = "partial" if summary["failed_sources"] else "succeeded"
         run.progress = "Done"
@@ -74,13 +73,6 @@ def execute(db: Session, run: ScanRun, gh_client=None, feed_client=None) -> None
         run.error = repo_scanner.error_text(e) if run.kind == "repo" else vulns.scrub(f"{type(e).__name__}")
     run.finished_at = utcnow()
     db.commit()
-
-
-def periodic_feed_due(db: Session) -> bool:
-    if settings.feed_refresh_hours <= 0:
-        return False
-    f = db.get(FeedStatus, "osv")
-    return not f or not f.last_attempt_at or f.last_attempt_at < utcnow() - timedelta(hours=settings.feed_refresh_hours)
 
 
 def main() -> None:
@@ -100,8 +92,9 @@ def main() -> None:
     while not stop:
         HEARTBEAT.touch()
         with SessionLocal() as db:
-            if periodic_feed_due(db):
-                enqueue(db, "feed", params={"mode": "full"})
+            due = sources.due(db)
+            if due:
+                enqueue(db, "feed", params={"mode": "full", "only": due})
                 db.commit()
             run = claim(db)
             if run:

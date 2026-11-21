@@ -23,18 +23,26 @@ class Settings:
         self.osv_enabled = _bool("OSV_ENABLED", True)
         self.kev_enabled = _bool("KEV_ENABLED", True)
         self.nvd_enabled = _bool("NVD_ENABLED", False)
-        self.feed_refresh_hours = _int("FEED_REFRESH_HOURS", 24)  # 0 disables periodic refresh
+        self.nvd_cpe_enabled = _bool("NVD_CPE_ENABLED", True)
+        self.epss_enabled = _bool("EPSS_ENABLED", True)
+        self.eol_enabled = _bool("EOL_ENABLED", True)
+        self.dependabot_enabled = _bool("DEPENDABOT_ENABLED", True)
+        # Default schedule; each source's schedule can then be changed on the Settings page.
+        self.feed_refresh_hours = _int("FEED_REFRESH_HOURS", 24)  # 0 = manual refresh only
         self.feed_stale_hours = _int("FEED_STALE_HOURS", 72)
         self.osv_max_queries = _int("OSV_MAX_QUERIES_PER_REFRESH", 5000)
         self.osv_max_vulns_per_package = _int("OSV_MAX_VULNS_PER_PACKAGE", 200)
         self.osv_max_fetch = _int("OSV_MAX_ADVISORY_FETCH_PER_REFRESH", 2000)
         self.nvd_max_per_refresh = _int("NVD_MAX_PER_REFRESH", 50)
+        self.nvd_cpe_max_per_refresh = _int("NVD_CPE_MAX_PER_REFRESH", 100)
         self.osv_api = os.getenv("OSV_API_URL", "https://api.osv.dev")
         self.kev_url = os.getenv(
             "KEV_URL",
             "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
         )
         self.nvd_api = os.getenv("NVD_API_URL", "https://services.nvd.nist.gov/rest/json/cves/2.0")
+        self.epss_api = os.getenv("EPSS_API_URL", "https://api.first.org/data/v1/epss")
+        self.eol_api = os.getenv("EOL_API_URL", "https://endoflife.date/api/v1")
         # Repository scan limits
         self.repo_max_file_bytes = _int("REPO_MAX_FILE_BYTES", 5 * 1024 * 1024)
         self.repo_max_total_bytes = _int("REPO_MAX_TOTAL_BYTES", 50 * 1024 * 1024)

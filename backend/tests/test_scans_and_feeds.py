@@ -143,6 +143,11 @@ def osv_handler(fail=False):
                 {"vulns": [{"id": "GHSA-test-0001"}]} if q["package"]["name"] == "lodash" and q.get("version") != "4.17.21" else {} for q in qs]})
         if req.url.path == "/v1/vulns/GHSA-test-0001":
             return httpx.Response(200, json=OSV_RECORD)
+        if req.url.path == "/data/v1/epss":
+            return httpx.Response(200, json={"data": [{"cve": c, "epss": "0.5", "percentile": "0.9"}
+                                                      for c in req.url.params["cve"].split(",")]})
+        if req.url.path == "/api/v1/products/full":
+            return httpx.Response(200, json={"result": []})
         return httpx.Response(404)
     return handler
 
@@ -168,6 +173,7 @@ def test_feed_refresh_matches_flags_kev_and_resolves_on_upgrade(db):
     f = db.query(Finding).filter_by(component_id=c.id).one()
     assert f.match_status == "confirmed" and f.fixed_versions == ["4.17.21"]
     assert "4.17.21" in f.remediation and "CISA KEV" in f.remediation
+    assert adv.epss == 0.5 and adv.epss_percentile == 0.9
     assert db.query(Finding).filter_by(component_id=unknown.id).one().match_status == "unknown_version"
     assert db.query(Finding).filter_by(component_id=other.id).count() == 0
     db.refresh(other)
@@ -183,7 +189,7 @@ def test_feed_refresh_matches_flags_kev_and_resolves_on_upgrade(db):
 def test_feed_failure_is_recorded_and_not_reported_as_clean(db):
     c = _component(db)
     summary = vulns.run_feed_refresh(db, httpx.Client(transport=httpx.MockTransport(osv_handler(fail=True))), "full")
-    assert summary["failed_sources"] == ["osv"]
+    assert "osv" in summary["failed_sources"]
     st = db.get(FeedStatus, "osv")
     assert st.last_error and st.last_success_at is None
     db.refresh(c)
