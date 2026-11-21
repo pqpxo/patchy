@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from "react";
-import { get, post, put, type AuditEntry, type Feed, type Page } from "../api";
+import { get, post, put, type AuditEntry, type Feed, type Page, type ScanRun } from "../api";
 import { Icon } from "../icons";
 import { HOURS_LABEL, safeUrl } from "../format";
 import { FONTS, PAGE_SIZES, SCHEMES, resolvedMode, setPrefs, usePrefs, type Mode } from "../prefs";
-import { ErrorBox, Field, KV, PageHead, Pager, Skeleton, Switch, When, errText, toast, useLoad, useQueryParam } from "../ui";
+import { ErrorBox, Field, KV, PageHead, Pager, RunBanner, Skeleton, Switch, When, errText, toast, useLoad, useQueryParam } from "../ui";
 
 interface SettingsData {
   github_token_configured: boolean; nvd_api_key_configured: boolean; feed_stale_hours: number; cookie_secure: boolean;
@@ -85,6 +85,8 @@ function Appearance() {
 
 function Sources({ choices }: { choices: number[] }) {
   const feeds = useLoad(() => get<Feed[]>("/api/feeds"), []);
+  const runs = useLoad(() => get<Page<ScanRun>>("/api/scans", { kind: "feed", page_size: 1 }), [],
+    (d) => (d?.items[0] && ["queued", "running"].includes(d.items[0].status) ? 2000 : null));
   const [busy, setBusy] = useState("");
   const save = async (source: string, change: { enabled?: boolean; hours?: number }) => {
     setBusy(source);
@@ -93,7 +95,7 @@ function Sources({ choices }: { choices: number[] }) {
     finally { setBusy(""); }
   };
   const refresh = async (sources?: string[]) => {
-    try { await post("/api/feeds/refresh", sources ? { sources } : {}); toast("Refresh queued. Progress shows on the Scans page.", "info"); }
+    try { await post("/api/feeds/refresh", sources ? { sources } : {}); runs.reload(); }
     catch (e) { toast(errText(e), "bad"); }
   };
   if (feeds.error) return <ErrorBox error={feeds.error} onRetry={feeds.reload} />;
@@ -104,6 +106,7 @@ function Sources({ choices }: { choices: number[] }) {
         <h2>Vulnerability and support sources</h2>
         <button className="btn small" onClick={() => refresh()}><Icon name="refresh" size={14} /> Refresh all now</button>
       </div>
+      <RunBanner run={runs.data?.items[0]} what="Refresh" onFinished={feeds.reload} />
       <p className="small muted">Each source refreshes on its own schedule. After a refresh, Patchy re-matches your inventory.
         Changes here override <code>FEED_REFRESH_HOURS</code> and the <code>*_ENABLED</code> variables.</p>
       <div className="sources">
