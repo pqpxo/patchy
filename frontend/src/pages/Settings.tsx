@@ -118,8 +118,8 @@ function Sources({ choices }: { choices: number[] }) {
               <Switch on={f.enabled} disabled={!!f.unavailable || busy === f.source} label={`Enable ${f.label}`} onChange={(v) => save(f.source, { enabled: v })} />
               <div>
                 <div className="src-title"><span className={`dot ${tone}`} />{f.label}
-                  {f.enabled && f.stale && !f.last_error && <span className="badge tone-warn">stale</span>}
-                  {f.enabled && f.last_error && <span className="badge tone-bad">error</span>}</div>
+                  {f.enabled && f.stale && !f.last_error && <span className="badge tone-warn">Stale</span>}
+                  {f.enabled && f.last_error && <span className="badge tone-bad">Error</span>}</div>
                 <div className="small">{f.about}</div>
                 {f.unavailable && <div className="small text-warn">{f.unavailable}</div>}
                 {f.enabled && f.last_error && <div className="small text-bad">{f.last_error}</div>}
@@ -144,7 +144,7 @@ function Sources({ choices }: { choices: number[] }) {
 }
 
 function System({ s }: { s: SettingsData }) {
-  const yes = (b: boolean) => (b ? <span className="badge tone-good">set</span> : <span className="badge tone-muted">not set</span>);
+  const yes = (b: boolean) => (b ? <span className="badge tone-good">Set</span> : <span className="badge tone-muted">Not set</span>);
   return (
     <div className="grid two">
       <section className="card">

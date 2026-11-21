@@ -16,7 +16,7 @@ const running = (s?: string | null) => s === "queued" || s === "running";
 const repoCols: Col<Repo>[] = [
   { id: "name", label: "Repository", sort: "name", fixed: true, cell: (r) => <>
     <Link to={`/repositories/${r.id}`}>{r.owner}/{r.name}</Link>{r.is_demo && <span className="badge tone-warn">DEMO</span>}
-    {r.is_private && <span className="badge tone-muted">private</span>}
+    {r.is_private && <span className="badge tone-muted">Private</span>}
   </> },
   { id: "branch", label: "Branch", cell: (r) => r.branch ?? <span className="muted">default</span> },
   { id: "last_scanned", label: "Last scan", sort: "last_scanned", first: "desc", cell: (r) => <>
@@ -24,7 +24,7 @@ const repoCols: Col<Repo>[] = [
   </> },
   { id: "components", label: "Assets", sort: "components", first: "desc", num: true, cell: (r) => r.component_count },
   { id: "exposure", label: "Open findings", sort: "findings", first: "desc", cell: (r) => <Exposure e={r.exposure} /> },
-  { id: "dependabot", label: "Dependabot", cell: (r) => r.dependabot_error ? <span className="badge tone-muted" title={r.dependabot_error}>not readable</span>
+  { id: "dependabot", label: "Dependabot", cell: (r) => r.dependabot_error ? <span className="badge tone-muted" title={r.dependabot_error}>Not readable</span>
     : r.dependabot_total == null ? <span className="muted">-</span>
     : <span className="num" title="Open Dependabot alerts (alerts Patchy has not found itself)">{r.dependabot_total}{r.dependabot_only ? <span className="muted"> ({r.dependabot_only} only there)</span> : null}</span> },
 ];
@@ -98,7 +98,7 @@ function DependabotPanel({ d }: { d: Dependabot | null }) {
               <td>{a.package} <span className="cell-sub">{a.ecosystem}</span></td>
               <td><code>{a.manifest}</code></td>
               <td className="ver">{a.patched ?? <span className="muted">none</span>}</td>
-              <td>{a.in_patchy ? <span className="badge tone-good">yes</span> : <span className="badge tone-warn">only Dependabot</span>}</td>
+              <td>{a.in_patchy ? <span className="badge tone-good">Yes</span> : <span className="badge tone-warn">Only Dependabot</span>}</td>
             </tr>
           );
         })}</tbody>
@@ -149,9 +149,9 @@ export function RepoDetailPage({ id }: { id: number }) {
             ["Last revision", r.last_revision ? <code>{r.last_revision.slice(0, 12)}</code> : null], ["Last scanned", <When iso={r.last_scanned_at} />],
             ["Languages", r.languages ? Object.keys(r.languages).join(", ") || "none" : null]]} />
         </section>
-        <section className="card">
+        <section className="card fill">
           <h2>Latest scan</h2>
-          {last ? <RunSummary run={last} /> : <p className="muted">Not scanned yet.</p>}
+          <div className="fill-body">{last ? <RunSummary run={last} /> : <p className="muted">Not scanned yet.</p>}</div>
         </section>
       </div>}
       {t === "assets" && (assets.data ? (assets.data.items.length
