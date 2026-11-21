@@ -10,6 +10,8 @@ os.environ["NVD_API_KEY"] = ""
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import String, event, inspect  # noqa: E402
+from sqlalchemy.orm import Session  # noqa: E402
 
 from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
@@ -17,6 +19,17 @@ from app.models import Host, User  # noqa: E402
 from app.security import hash_password, limiter  # noqa: E402
 
 PASSWORD = "correct horse battery"
+
+
+@event.listens_for(Session, "before_flush")
+def _enforce_varchar_lengths(session, _ctx, _instances):
+    """SQLite ignores VARCHAR(n) but Postgres rejects overlong values, so fail tests the way production would."""
+    for obj in [*session.new, *session.dirty]:
+        for attr in inspect(obj).mapper.column_attrs:
+            col, value = attr.columns[0], getattr(obj, attr.key, None)
+            if isinstance(col.type, String) and col.type.length and isinstance(value, str)                     and len(value) > col.type.length:
+                raise AssertionError(f"{col.table.name}.{col.name} is VARCHAR({col.type.length}) "
+                                     f"but got {len(value)} characters")
 
 
 @pytest.fixture(autouse=True)

@@ -357,5 +357,5 @@ def severity_from_osv(record: dict) -> tuple[str, float | None, str | None, str 
         return ("medium" if label == "moderate" else label), None, None, "advisory label"
     for s in record.get("severity") or []:
         if s.get("type") == "CVSS_V4":
-            return "unknown", None, s.get("score"), "CVSS v4 vector (not scored locally)"
+            return "unknown", None, s.get("score"), "CVSS v4 (not scored locally)"
     return "unknown", None, None, None

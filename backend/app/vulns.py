@@ -119,7 +119,8 @@ def upsert_advisory(db: Session, rec: dict, source: str = "osv") -> Advisory:
     adv.details = (rec.get("details") or "")[:20000] or None
     adv.published, adv.modified, adv.withdrawn = _dt(rec.get("published")), _dt(rec.get("modified")), _dt(rec.get("withdrawn"))
     if adv.severity_source != "NVD" or label != "unknown":
-        adv.severity, adv.cvss_score, adv.cvss_vector, adv.severity_source = label, score, vector, sev_src
+        adv.severity, adv.cvss_score, adv.severity_source = label, score, sev_src
+        adv.cvss_vector = vector[:200] if vector else None
     adv.references = [{"type": r.get("type"), "url": r.get("url")} for r in rec.get("references") or []
                       if str(r.get("url", "")).startswith(("https://", "http://"))][:100]
     adv.affected = [{k: a.get(k) for k in ("package", "ranges", "versions") if a.get(k)}
@@ -134,7 +135,7 @@ def upsert_advisory(db: Session, rec: dict, source: str = "osv") -> Advisory:
         key = (pkg.get("ecosystem", ""), m.normalize_name(pkg.get("ecosystem", ""), pkg.get("name", "")))
         if key[0] and key[1] and key not in seen:
             seen.add(key)
-            db.add(AdvisoryPackage(advisory_id=adv.id, ecosystem=key[0], name=key[1]))
+            db.add(AdvisoryPackage(advisory_id=adv.id, ecosystem=key[0][:64], name=key[1][:300]))
     kev = (db.get(FeedStatus, "kev").detail or {}).get("entries", {}) if db.get(FeedStatus, "kev") else {}
     _apply_kev(adv, kev)
     return adv
