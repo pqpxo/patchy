@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from . import __version__
 from .routers import auth, inventory, security_api
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -14,7 +15,7 @@ log = logging.getLogger("patchy")
 STATIC = pathlib.Path(os.getenv("STATIC_DIR", pathlib.Path(__file__).resolve().parents[2] / "frontend" / "dist"))
 DOCS = os.getenv("ENABLE_API_DOCS", "false").lower() == "true"
 
-app = FastAPI(title="Patchy", version="0.1.0", openapi_url="/api/openapi.json",
+app = FastAPI(title="Patchy", version=__version__, openapi_url="/api/openapi.json",
               docs_url="/api/docs" if DOCS else None, redoc_url=None)
 app.include_router(auth.router)
 app.include_router(inventory.router)
