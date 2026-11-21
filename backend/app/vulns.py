@@ -221,9 +221,10 @@ def refresh_kev(db: Session, client: httpx.Client) -> dict:
 
 def refresh_nvd(db: Session, client: httpx.Client, sleep=time.sleep) -> dict:
     """Fill in CVSS for advisories with unknown severity that have findings. Bounded and rate-limited."""
-    q = (select(Advisory).join(Finding, Finding.advisory_id == Advisory.id)
-         .where(Advisory.severity == "unknown", Advisory.nvd_checked_at.is_(None))
-         .distinct().limit(settings.nvd_max_per_refresh))
+    # IN (subquery), not DISTINCT: Postgres can't compare the JSON columns DISTINCT would need.
+    q = (select(Advisory).where(Advisory.id.in_(select(Finding.advisory_id)), Advisory.severity == "unknown",
+                                Advisory.nvd_checked_at.is_(None))
+         .order_by(Advisory.id).limit(settings.nvd_max_per_refresh))
     headers = {"apiKey": settings.nvd_api_key} if settings.nvd_api_key else {}
     delay = 0.7 if settings.nvd_api_key else 6.5  # NVD: 50 or 5 requests per 30s
     done = 0
@@ -249,7 +250,8 @@ def refresh_nvd(db: Session, client: httpx.Client, sleep=time.sleep) -> dict:
 
 def refresh_epss(db: Session, client: httpx.Client, only_missing: bool = False) -> dict:
     """EPSS for CVEs behind current findings, 100 CVEs per request."""
-    q = select(Advisory).join(Finding).where(Finding.currently_matching.is_(True)).distinct()
+    q = select(Advisory).where(Advisory.id.in_(
+        select(Finding.advisory_id).where(Finding.currently_matching.is_(True))))
     if only_missing:
         q = q.where(Advisory.epss.is_(None))
     advs = [a for a in db.scalars(q).all() if a.cve_ids]
