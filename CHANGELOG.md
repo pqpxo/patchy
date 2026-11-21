@@ -18,6 +18,8 @@ All notable changes to Patchy. Versions follow [semantic versioning](https://sem
 - Settings: version and changelog.
 - Optional CPE (`vendor:product`) on manual assets for NVD matching.
 - Hosts page flags agents older than the bundled agent.
+- Host and repository lists show open findings as a severity strip, marked when any are known exploited.
+- Overview page: a *Fix first* queue ranked by known and likely exploitation, end-of-life counts and source health.
 
 ### Changed
 - `FEED_REFRESH_HOURS` is now the default schedule; the Settings page overrides it per source.
