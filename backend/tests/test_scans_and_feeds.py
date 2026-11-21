@@ -79,6 +79,36 @@ def test_repo_scan_not_found_gives_clear_error(db):
     assert run.status == "failed" and "GITHUB_TOKEN" in run.error
 
 
+def test_rate_limited_scan_fails_without_marking_components_missing(db):
+    repo = Repository(url="https://github.com/octo/app", owner="octo", name="app")
+    db.add(repo)
+    db.commit()
+    ok = github_handler([])
+
+    def limited(req):
+        if "/contents/" in req.url.path:
+            return httpx.Response(403, headers={"x-ratelimit-remaining": "0"})
+        return ok(req)
+
+    for handler, expected in ((ok, "partial"), (limited, "failed")):
+        run, _ = worker.enqueue(db, "repo", repository_id=repo.id)
+        db.commit()
+        worker.execute(db, run, gh_client=repo_scanner.github_client(httpx.MockTransport(handler)))
+        db.refresh(run)
+        assert run.status == expected
+    assert "rate limit" in run.error and "GITHUB_TOKEN" in run.error
+    lodash = db.query(Component).filter_by(repository_id=repo.id, name="lodash").one()
+    assert lodash.missing_since is None
+
+
+def test_cvss_v4_advisory_fits_postgres_columns(db):
+    vector = "CVSS:4.0/AV:L/AC:L/AT:P/PR:H/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N"
+    adv = vulns.upsert_advisory(db, {"id": "PYSEC-2026-1377", "severity": [{"type": "CVSS_V4", "score": vector}],
+                                     "affected": [{"package": {"ecosystem": "PyPI", "name": "flask"}}]})
+    db.commit()  # the conftest length guard raises here if any value is too long for Postgres
+    assert adv.severity == "unknown" and adv.cvss_vector == vector
+
+
 def test_duplicate_scan_requests_are_idempotent(db):
     repo = Repository(url="https://github.com/octo/app", owner="octo", name="app")
     db.add(repo)
