@@ -33,6 +33,12 @@ NGINX_CVE = {"id": "CVE-2023-44487", "published": "2023-10-10T14:15:10.883", "la
                  {"vulnerable": True, "criteria": "cpe:2.3:a:other:thing:*:*:*:*:*:*:*:*"}]}]}]}
 
 
+# nginx appears only as a non-vulnerable platform, so this CVE must not become a finding.
+PLATFORM_ONLY = {"id": "CVE-2020-0001", "descriptions": [], "configurations": [{"nodes": [{"cpeMatch": [
+    {"vulnerable": True, "criteria": "cpe:2.3:a:acme:plugin:1.0:*:*:*:*:*:*:*"},
+    {"vulnerable": False, "criteria": "cpe:2.3:a:f5:nginx:*:*:*:*:*:*:*:*"}]}]}]}
+
+
 def handler(calls):
     def h(req: httpx.Request):
         calls.append(req)
@@ -40,7 +46,7 @@ def handler(calls):
             return httpx.Response(200, json=EOL_DUMP)
         if req.url.path == "/rest/json/cves/2.0":
             match = req.url.params["virtualMatchString"]
-            vulns_ = [{"cve": NGINX_CVE}] if match == "cpe:2.3:a:f5:nginx:1.22.1" else []
+            vulns_ = [{"cve": NGINX_CVE}, {"cve": PLATFORM_ONLY}] if match == "cpe:2.3:a:f5:nginx:1.22.1" else []
             return httpx.Response(200, json={"totalResults": len(vulns_), "vulnerabilities": vulns_})
         return httpx.Response(404)
     return h
@@ -86,7 +92,10 @@ def test_cpe_targets_and_possible_match(db):
     assert cpe.targets_for(ssh, {}, None) == [("openbsd:openssh", "9.2:p1")]
     assert cpe.targets_for(lib, {}, None) == [] and cpe.targets_for(image, {}, None) == []
     summary = cpe.refresh_cpe(db, client, "full", sleep=lambda s: None)
-    assert summary["cves_found"] == 1
+    assert summary["cves_found"] == 1  # the platform-only CVE is dropped
+    assert cpe.covers({"start_incl": "1.9.5", "end_excl": "1.25.3"}, "1.22.1")
+    assert not cpe.covers({"start_incl": "3.11.0", "end_excl": "3.11.10"}, "3.10.12")
+    assert cpe.covers({"version": "9.2:p1"}, "9.2:p1")
     assert {c.url.params["virtualMatchString"] for c in calls} == {
         "cpe:2.3:a:f5:nginx:1.22.1", "cpe:2.3:a:nginx:nginx:1.22.1", "cpe:2.3:a:openbsd:openssh:9.2:p1"}
     vulns.rematch(db)
