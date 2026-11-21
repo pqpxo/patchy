@@ -1,0 +1,115 @@
+"""DB-backed job worker. Run as `python -m app.worker` (the `worker` compose service)."""
+from __future__ import annotations
+
+import logging
+import pathlib
+import signal
+import time
+from datetime import timedelta
+
+from sqlalchemy import select, update
+from sqlalchemy.orm import Session
+
+from . import repo_scanner, vulns
+from .config import settings
+from .db import SessionLocal, utcnow
+from .models import FeedStatus, ScanRun
+
+log = logging.getLogger("patchy.worker")
+HEARTBEAT = pathlib.Path("/tmp/patchy-worker-heartbeat")
+
+
+def enqueue(db: Session, kind: str, *, repository_id=None, params=None) -> tuple[ScanRun, bool]:
+    """Queue a job unless an identical one is already queued/running. Returns (run, created)."""
+    q = select(ScanRun).where(ScanRun.kind == kind, ScanRun.status.in_(["queued", "running"]))
+    if repository_id:
+        q = q.where(ScanRun.repository_id == repository_id)
+    if kind == "feed":
+        mode = (params or {}).get("mode", "full")
+        dupes = [r for r in db.scalars(q) if (r.params or {}).get("mode") in (mode, "full")]
+    else:
+        dupes = db.scalars(q).all()
+    if dupes:
+        return dupes[0], False
+    run = ScanRun(kind=kind, repository_id=repository_id, params=params, status="queued", progress="Queued")
+    db.add(run)
+    db.flush()
+    return run, True
+
+
+def claim(db: Session) -> ScanRun | None:
+    for run in db.scalars(select(ScanRun).where(ScanRun.status == "queued",
+                                                ScanRun.kind.in_(["repo", "feed"])).order_by(ScanRun.id).limit(5)):
+        # Atomic claim: only one worker wins the UPDATE.
+        res = db.execute(update(ScanRun).where(ScanRun.id == run.id, ScanRun.status == "queued")
+                         .values(status="running", started_at=utcnow()))
+        db.commit()
+        if res.rowcount == 1:
+            db.refresh(run)
+            return run
+    return None
+
+
+def execute(db: Session, run: ScanRun, gh_client=None, feed_client=None) -> None:
+    try:
+        if run.kind == "repo":
+            with (gh_client or repo_scanner.github_client()) as client:
+                summary = repo_scanner.scan_repository(db, run, client)
+            ids = summary.pop("component_ids")
+            vulns.rematch(db, ids)
+            run.summary = summary
+            run.status = "partial" if summary["partial"] else "succeeded"
+            enqueue(db, "feed", params={"mode": "pending"})
+        elif run.kind == "feed":
+            with (feed_client or vulns.http_client()) as client:
+                summary = vulns.run_feed_refresh(db, client, (run.params or {}).get("mode", "full"))
+            run.summary = summary
+            run.status = "partial" if summary["failed_sources"] else "succeeded"
+        run.progress = "Done"
+    except Exception as e:  # record and continue; never crash the worker loop
+        db.rollback()
+        log.exception("job %s failed", run.id)
+        run = db.get(ScanRun, run.id)
+        run.status, run.progress = "failed", "Failed"
+        run.error = repo_scanner.error_text(e) if run.kind == "repo" else vulns.scrub(f"{type(e).__name__}")
+    run.finished_at = utcnow()
+    db.commit()
+
+
+def periodic_feed_due(db: Session) -> bool:
+    if settings.feed_refresh_hours <= 0:
+        return False
+    f = db.get(FeedStatus, "osv")
+    return not f or not f.last_attempt_at or f.last_attempt_at < utcnow() - timedelta(hours=settings.feed_refresh_hours)
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    stop = False
+
+    def _stop(*_):
+        nonlocal stop
+        stop = True
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGINT, _stop)
+    with SessionLocal() as db:  # jobs left running by a crash/restart
+        db.execute(update(ScanRun).where(ScanRun.status == "running", ScanRun.kind.in_(["repo", "feed"]))
+                   .values(status="failed", error="Worker restarted while job was running.", finished_at=utcnow()))
+        db.commit()
+    log.info("worker started")
+    while not stop:
+        HEARTBEAT.touch()
+        with SessionLocal() as db:
+            if periodic_feed_due(db):
+                enqueue(db, "feed", params={"mode": "full"})
+                db.commit()
+            run = claim(db)
+            if run:
+                log.info("running job %s (%s)", run.id, run.kind)
+                execute(db, run)
+                continue
+        time.sleep(3)
+
+
+if __name__ == "__main__":
+    main()
