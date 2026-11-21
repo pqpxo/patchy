@@ -14,6 +14,16 @@ export const SCHEMES: { id: string; label: string; note: string }[] = [
   { id: "plum", label: "Plum", note: "Violet tint" },
   { id: "ember", label: "Ember", note: "Warm rust" },
   { id: "sand", label: "Sand", note: "Paper and ink" },
+  { id: "steel", label: "Steel", note: "Cool blue-grey" },
+  { id: "indigo", label: "Indigo", note: "Deep blue-violet" },
+  { id: "midnight", label: "Midnight", note: "Navy with cyan" },
+  { id: "ocean", label: "Ocean", note: "Bright sea blue" },
+  { id: "mint", label: "Mint", note: "Fresh green-teal" },
+  { id: "forest", label: "Forest", note: "Deep greens" },
+  { id: "moss", label: "Moss", note: "Olive and lichen" },
+  { id: "copper", label: "Copper", note: "Burnished orange" },
+  { id: "rose", label: "Rose", note: "Dusty pink" },
+  { id: "berry", label: "Berry", note: "Magenta tint" },
   { id: "contrast", label: "High contrast", note: "Maximum legibility" },
 ];
 

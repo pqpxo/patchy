@@ -166,7 +166,7 @@ export function HostDetailPage({ id }: { id: number }) {
       {h.is_demo && <div className="alert warn">DEMO host with fictional data.</div>}
       <Tabs value={t} onChange={setTab} tabs={[
         ["overview", "Overview"], ["assets", <>Assets <span className="num">{h.component_count}</span></>],
-        ["findings", <>Findings <span className="num">{h.open_findings}</span></>], ["fix", "How to fix"], ["reports", "Reports"],
+        ["findings", <>Findings <span className="num">{h.open_findings}</span></>], ["fix", "Fixes"], ["reports", "Reports"],
       ]} />
       {t === "overview" && <div className="host-grid">
         <section className="card">

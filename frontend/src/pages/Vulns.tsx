@@ -50,7 +50,7 @@ export function VulnsPage() {
   return (
     <>
       <PageHead title="Vulnerabilities" sub="Findings from OSV and NVD, ranked by known exploitation (CISA KEV), likely exploitation (EPSS), then severity."
-        actions={<Link to="/fix" className="btn"><Icon name="fix" size={14} /> How to fix</Link>} />
+        actions={<Link to="/fix" className="btn"><Icon name="fix" size={14} /> Fixes</Link>} />
       {stale && <div className="alert warn">OSV data is stale or has never been fetched, so this list may be incomplete. <Link to="/settings?tab=sources">Check sources</Link>.</div>}
       <ErrorBox error={error} onRetry={reload} />
       {loading && !data ? <Skeleton /> : data && <>
@@ -70,7 +70,7 @@ function HowToFix({ f, dep }: { f: Finding; dep: DependabotAlert | null }) {
   const plan = f.host_id ? `/hosts/${f.host_id}?tab=fix` : f.repository_id ? `/repositories/${f.repository_id}?tab=fix` : "/fix";
   return (
     <section className="card">
-      <div className="card-head"><h2>How to fix</h2><Link to={plan} className="small">Full fix plan</Link></div>
+      <div className="card-head"><h2>Fixes</h2><Link to={plan} className="small">Full fix plan</Link></div>
       {f.fixed_versions.length > 0 && (
         <p><span className="upgrade">{f.component_version ?? "?"}<span className="arrow">→</span>
           <span className="to">{f.fixed_versions.slice(0, 4).join(" or ")}</span></span></p>

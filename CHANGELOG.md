@@ -2,6 +2,23 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.1.1 - 2026-11-21
+
+### Added
+- 10 more colour schemes: Steel, Indigo, Midnight, Ocean, Mint, Forest, Moss, Copper, Rose and Berry.
+- Live status banner for repository scans and source refreshes on the page where they were started.
+
+### Changed
+- "How to fix" is now called "Fixes".
+- Page content is centred and up to 80% of the window wide. Wider table cell padding, and cells are centred vertically.
+- Host, Agent and Listening ports cards share a height; the ports list scrolls.
+- The agent install commands start in the home folder and no longer open a file viewer.
+
+### Fixed
+- EPSS and NVD severity refreshes failed on PostgreSQL.
+- Copy buttons did nothing when Patchy was served over plain HTTP.
+- The Assets table could need a horizontal scroll bar.
+
 ## 1.1.0 - 2026-11-21
 
 ### Added
