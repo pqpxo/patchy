@@ -27,6 +27,11 @@ if [ ! -f "$ETC/config.json" ]; then
   sed "s#https://patchy.example.lan#$SERVER_URL#" "$HERE/config.example.json" > "$ETC/config.json"
   chown root:"$USER_NAME" "$ETC/config.json"; chmod 0640 "$ETC/config.json"
   echo "Wrote $ETC/config.json (edit it to change what is collected)."
+  case "$SERVER_URL" in http://*)
+    printf "%s is plain HTTP, so the token is sent unencrypted. Allow it on this trusted LAN? [y/N] " "$SERVER_URL"
+    read -r ANSWER || ANSWER=""
+    case "$ANSWER" in [yY]*) sed -i 's#"allow_insecure_http": false#"allow_insecure_http": true#' "$ETC/config.json";; esac;;
+  esac
 fi
 
 if [ ! -s "$ETC/token" ]; then
