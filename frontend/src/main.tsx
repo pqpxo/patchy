@@ -23,7 +23,7 @@ const NAV: { to: string; label: string; icon: string; count?: keyof Counts }[][]
     { to: "/hosts", label: "Hosts", icon: "hosts", count: "hosts" },
     { to: "/repositories", label: "Repositories", icon: "repos", count: "repositories" }],
   [{ to: "/vulnerabilities", label: "Vulnerabilities", icon: "vulns", count: "findings" },
-    { to: "/fix", label: "How to fix", icon: "fix" },
+    { to: "/fix", label: "Fixes", icon: "fix" },
     { to: "/scans", label: "Scans", icon: "scans" }],
 ];
 

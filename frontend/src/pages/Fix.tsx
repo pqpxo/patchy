@@ -107,7 +107,7 @@ export function FixPage() {
   const [kind, id] = scope.split(":");
   return (
     <>
-      <PageHead title="How to fix" sub="Open findings grouped into the fewest upgrade steps, worst first. Known exploited items lead."
+      <PageHead title="Fixes" sub="Open findings grouped into the fewest upgrade steps, worst first. Known exploited items lead."
         actions={
           <select aria-label="Scope" value={scope} onChange={(e) => setScope(e.target.value)}>
             <option value="">Everything</option>
