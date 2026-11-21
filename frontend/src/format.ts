@@ -58,3 +58,22 @@ export function safeUrl(url: string | null | undefined): string | null {
     return null;
   }
 }
+
+// EPSS probability (0-1) as a short percentage.
+export function pct(v: number | null | undefined): string {
+  if (v == null) return "-";
+  const p = v * 100;
+  if (p > 0 && p < 0.1) return "<0.1%";
+  if (p >= 99.5 && p < 100) return ">99%";
+  return `${p < 10 ? p.toFixed(1) : Math.round(p)}%`;
+}
+
+export const EOL_STATES: Record<string, { label: string; tone: string }> = {
+  eol: { label: "End of life", tone: "bad" },
+  eol_soon: { label: "EOL soon", tone: "warn" },
+  supported: { label: "Supported", tone: "good" },
+};
+
+export const HOURS_LABEL = (h: number) =>
+  h === 0 ? "Manual only" : h === 1 ? "Every hour" : h < 24 ? `Every ${h} hours` : h === 24 ? "Daily"
+    : h === 168 ? "Weekly" : `Every ${h / 24} days`;

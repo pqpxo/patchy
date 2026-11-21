@@ -14,6 +14,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from . import parsers
+from . import __version__
 from .config import settings
 from .db import utcnow
 from .inventory import sync_components
@@ -54,7 +55,7 @@ def safe_repo_path(path: str) -> bool:
 
 def github_client(transport=None) -> httpx.Client:
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
-               "User-Agent": "Patchy/0.1"}
+               "User-Agent": f"Patchy/{__version__}"}
     if settings.github_token:
         headers["Authorization"] = f"Bearer {settings.github_token}"
     return httpx.Client(timeout=30, headers=headers, follow_redirects=True, transport=transport)

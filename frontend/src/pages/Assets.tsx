@@ -1,80 +1,74 @@
 import { useEffect, useState } from "react";
 import { del, get, post, put, type Asset, type AssetDetail, type Page } from "../api";
-import { TYPES, label, versionText } from "../format";
+import { Icon } from "../icons";
+import { TYPES, label, safeUrl, versionText } from "../format";
+import { usePrefs } from "../prefs";
+import { AssetTable, FindingTable } from "../tables";
 import {
-  CheckState, DangerButton, Empty, ErrorBox, Field, Kev, KV, Link, Loading, Match, PageHead, Pager, Sev, Status, When,
-  errText, fieldErrors, navigate, useLoad, useQueryParam,
+  CheckState, DangerButton, Empty, ErrorBox, Eol, Field, KV, Link, PageHead, Pager, Skeleton, Tabs, When, errText,
+  fieldErrors, navigate, toast, useLoad, useQueryParam, useSort,
 } from "../ui";
 
 const ECOSYSTEMS = ["PyPI", "npm", "Go", "crates.io", "Packagist", "Maven", "RubyGems", "NuGet"];
-
-export function AssetTable({ items }: { items: Asset[] }) {
-  return (
-    <div className="table-wrap">
-      <table className="table">
-        <thead><tr><th>Name</th><th>Version</th><th>Type</th><th>Location</th><th>Source</th><th>Vulnerability check</th><th>Findings</th></tr></thead>
-        <tbody>{items.map((a) => (
-          <tr key={a.id}>
-            <td><Link to={`/assets/${a.id}`}>{a.name}</Link>{a.ecosystem && <div className="muted small">{a.ecosystem}</div>}</td>
-            <td className={a.version_status !== "exact" ? "muted" : ""}>{versionText(a.version, a.version_status, a.version_spec)}</td>
-            <td>{label(TYPES, a.component_type)}</td>
-            <td>{a.host_name ?? a.repository_label ?? "-"}{a.port ? <span className="muted"> :{a.port}/{a.protocol}</span> : null}</td>
-            <td>{a.source}</td>
-            <td><CheckState s={a.check_state} /></td>
-            <td>{a.open_findings ? <><Sev s={a.max_severity} /> {a.open_findings}</> : <span className="muted">0</span>}</td>
-          </tr>
-        ))}</tbody>
-      </table>
-    </div>
-  );
-}
 
 export function AssetsPage() {
   const [q, setQ] = useQueryParam("q");
   const [type, setType] = useQueryParam("type");
   const [source, setSource] = useQueryParam("source");
+  const [eolState, setEol] = useQueryParam("eol_state");
   const [vuln, setVuln] = useQueryParam("vulnerable");
   const [missing, setMissing] = useQueryParam("missing");
   const [page, setPage] = useQueryParam("page");
   const [hostId] = useQueryParam("host_id");
   const [repoId] = useQueryParam("repository_id");
+  const sort = useSort("name");
+  const { pageSize } = usePrefs();
   const [search, setSearch] = useState(q);
   const { data, error, loading, reload } = useLoad(() => get<Page<Asset>>("/api/assets", {
     q, component_type: type, source, vulnerable_only: vuln === "1", include_missing: missing === "1", page: page || 1,
-    host_id: hostId, repository_id: repoId,
-  }), [q, type, source, vuln, missing, page, hostId, repoId]);
+    host_id: hostId, repository_id: repoId, eol_state: eolState ? [eolState] : undefined,
+    sort: sort.sort, order: sort.order, page_size: pageSize,
+  }), [q, type, source, vuln, missing, page, hostId, repoId, eolState, sort.sort, sort.order, pageSize]);
 
+  const tools = (
+    <>
+      <form role="search" onSubmit={(e) => { e.preventDefault(); setQ(search); }}>
+        <input type="search" aria-label="Search by name" placeholder="Search name…" value={search}
+          onChange={(e) => { setSearch(e.target.value); if (!e.target.value) setQ(""); }} maxLength={200} />
+      </form>
+      <select aria-label="Type" value={type} onChange={(e) => setType(e.target.value)}>
+        <option value="">All types</option>
+        {Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+      </select>
+      <select aria-label="Source" value={source} onChange={(e) => setSource(e.target.value)}>
+        <option value="">All sources</option><option value="manual">Manual</option><option value="repo">Repository</option>
+        <option value="agent">Agent</option><option value="demo">Demo</option>
+      </select>
+      <select aria-label="Support" value={eolState} onChange={(e) => setEol(e.target.value)}>
+        <option value="">Any support state</option><option value="eol">End of life</option><option value="eol_soon">EOL soon</option>
+        <option value="supported">Supported</option>
+      </select>
+      <label className="check"><input type="checkbox" checked={vuln === "1"} onChange={(e) => setVuln(e.target.checked ? "1" : "")} /> Vulnerable</label>
+      <label className="check"><input type="checkbox" checked={missing === "1"} onChange={(e) => setMissing(e.target.checked ? "1" : "")} /> Include removed</label>
+    </>
+  );
   return (
     <>
       <PageHead title="Assets" sub="Every tracked language, library, server, package and image."
-        actions={<Link to="/assets/new" className="btn primary">Add asset</Link>} />
-      <form className="filters" role="search" onSubmit={(e) => { e.preventDefault(); setQ(search); }}>
-        <input aria-label="Search by name" placeholder="Search name…" value={search} onChange={(e) => setSearch(e.target.value)} maxLength={200} />
-        <select aria-label="Type" value={type} onChange={(e) => setType(e.target.value)}>
-          <option value="">All types</option>
-          {Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
-        <select aria-label="Source" value={source} onChange={(e) => setSource(e.target.value)}>
-          <option value="">All sources</option><option value="manual">Manual</option><option value="repo">Repository</option>
-          <option value="agent">Agent</option><option value="demo">Demo</option>
-        </select>
-        <label className="check"><input type="checkbox" checked={vuln === "1"} onChange={(e) => setVuln(e.target.checked ? "1" : "")} /> Vulnerable only</label>
-        <label className="check"><input type="checkbox" checked={missing === "1"} onChange={(e) => setMissing(e.target.checked ? "1" : "")} /> Include removed</label>
-        <button className="btn">Search</button>
-      </form>
+        actions={<Link to="/assets/new" className="btn primary"><Icon name="plus" size={14} /> Add asset</Link>} />
       <ErrorBox error={error} onRetry={reload} />
-      {loading && !data ? <Loading /> : data && (data.items.length === 0 ? (
-        <Empty title="No assets match.">Add one manually, scan a repository or enrol a host agent.</Empty>
-      ) : (
-        <><AssetTable items={data.items} /><Pager page={data.page} total={data.total} size={data.page_size} onPage={(p) => setPage(String(p))} /></>
-      ))}
+      {loading && !data ? <Skeleton /> : data && <>
+        <AssetTable items={data.items} sort={sort} tools={tools} />
+        {data.items.length === 0 && <Empty title="No assets match.">Change the filters, add one manually, scan a repository or enrol a host agent.</Empty>}
+        <Pager page={data.page} total={data.total} size={data.page_size} onPage={(p) => setPage(String(p))} />
+      </>}
     </>
   );
 }
 
 type Form = Record<string, string>;
 const BLANK: Form = { name: "", component_type: "application", vendor: "", ecosystem: "", version: "", version_status: "exact",
-  host_name: "", host_ip: "", listen_ip: "", port: "", protocol: "", install_path: "", repository_url: "", branch: "", notes: "" };
+  host_name: "", host_ip: "", listen_ip: "", port: "", protocol: "", install_path: "", repository_url: "", branch: "", cpe: "", notes: "" };
 
 export function AssetForm({ id }: { id?: number }) {
   const [f, setF] = useState<Form>(BLANK);
@@ -90,7 +84,7 @@ export function AssetForm({ id }: { id?: number }) {
         name: a.name, component_type: a.component_type, vendor: a.vendor, ecosystem: a.ecosystem, version: a.version ?? a.version_spec,
         version_status: a.version_status === "unknown" ? "exact" : a.version_status, host_name: a.host_name, host_ip: a.host_ip,
         listen_ip: a.listen_ip, port: a.port, protocol: a.protocol, install_path: a.install_path,
-        repository_url: a.repository_url, notes: a.notes,
+        repository_url: a.repository_url, cpe: a.cpe, notes: a.notes,
       }).map(([k, v]) => [k, v == null ? "" : String(v)])) });
     }).catch((e) => setError(errText(e)));
   }, [id]);
@@ -100,7 +94,8 @@ export function AssetForm({ id }: { id?: number }) {
 
   return (
     <>
-      <PageHead title={id ? "Edit asset" : "Add asset"} sub={detected ? "This asset was discovered by a scan; only notes can be edited." : undefined} />
+      <PageHead title={id ? "Edit asset" : "Add asset"} crumbs={[["Assets", "/assets"]]}
+        sub={detected ? "This asset was discovered by a scan; only notes can be edited." : undefined} />
       <form className="card form" onSubmit={async (e) => {
         e.preventDefault();
         setBusy(true); setErrors({}); setError("");
@@ -109,6 +104,7 @@ export function AssetForm({ id }: { id?: number }) {
         body.version_status = f.version ? f.version_status : "unknown";
         try {
           const a = id ? await put<Asset>(`/api/assets/${id}`, body) : await post<Asset>("/api/assets", body);
+          toast(id ? "Asset saved." : "Asset added.");
           navigate(`/assets/${a.id}`);
         } catch (err) {
           setErrors(fieldErrors(err)); setError(errText(err));
@@ -121,7 +117,7 @@ export function AssetForm({ id }: { id?: number }) {
               {Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </Field>
-          <Field label="Ecosystem" hint="Needed for vulnerability matching. Leave blank if none applies." error={errors.ecosystem}>
+          <Field label="Ecosystem" hint="Needed for OSV matching. Leave blank if none applies." error={errors.ecosystem}>
             <select value={f.ecosystem} onChange={set("ecosystem")} disabled={detected}>
               <option value="">None / not a package</option>
               {ECOSYSTEMS.map((e) => <option key={e}>{e}</option>)}
@@ -133,6 +129,10 @@ export function AssetForm({ id }: { id?: number }) {
             <select value={f.version_status} onChange={set("version_status")} disabled={detected || !f.version}>
               <option value="exact">Exact installed version</option><option value="constraint">Approximate / range</option>
             </select>
+          </Field>
+          <Field label="CPE product" error={errors.cpe}
+            hint={<>Optional <code>vendor:product</code> from NVD, for apps OSV doesn't cover (for example <code>home-assistant:home-assistant</code>).</>}>
+            {input("cpe", { maxLength: 200, placeholder: "vendor:product", pattern: "[A-Za-z0-9_.\\-]+:[A-Za-z0-9_.\\-]+" })}
           </Field>
           <Field label="Host name" hint="Creates the host if it doesn't exist." error={errors.host_name}>{input("host_name", { maxLength: 255 })}</Field>
           <Field label="Host IP" error={errors.host_ip}>{input("host_ip", { maxLength: 64, inputMode: "decimal" })}</Field>
@@ -156,51 +156,47 @@ export function AssetForm({ id }: { id?: number }) {
   );
 }
 
-export function FindingTable({ items, showAsset = true }: { items: AssetDetail["findings"]; showAsset?: boolean }) {
-  return (
-    <div className="table-wrap">
-      <table className="table">
-        <thead><tr><th>Severity</th><th>Advisory</th>{showAsset && <th>Asset</th>}<th>Match</th><th>Fixed in</th><th>Status</th></tr></thead>
-        <tbody>{items.map((f) => (
-          <tr key={f.id} className={f.currently_matching ? "" : "dim"}>
-            <td><Sev s={f.advisory.severity} /> {f.advisory.cvss_score ?? ""}</td>
-            <td><Link to={`/vulnerabilities/${f.id}`}>{f.advisory.id}</Link> <Kev on={f.advisory.kev} />
-              <div className="small muted clamp">{f.advisory.summary}</div></td>
-            {showAsset && <td><Link to={`/assets/${f.component_id}`}>{f.component_name}</Link> <span className="muted">{f.component_version}</span>
-              <div className="small muted">{f.host_name ?? f.repository_label}</div></td>}
-            <td><Match s={f.match_status} /></td>
-            <td>{f.fixed_versions.length ? f.fixed_versions.slice(0, 3).join(", ") : <span className="muted">not listed</span>}</td>
-            <td><Status s={f.status} />{!f.currently_matching && <div className="small muted">no longer matches</div>}</td>
-          </tr>
-        ))}</tbody>
-      </table>
-    </div>
-  );
-}
-
+const NO_FINDINGS: Record<string, string> = {
+  no_known_vulns: "No advisory matches this exact version as of the last check.",
+  stale: "No matches at the last check, but feed data is stale. Refresh feeds before relying on this.",
+  not_checked_yet: "Not checked yet. Run a feed refresh.",
+  version_unknown: "No findings, but the version is unknown so Patchy cannot confirm this is unaffected.",
+  not_checkable: "No supported vulnerability source covers this component. Add a CPE product to check it against NVD.",
+};
 
 export function AssetDetailPage({ id }: { id: number }) {
   const { data: a, error, reload } = useLoad(() => get<AssetDetail>(`/api/assets/${id}`), [id]);
+  const [tab, setTab] = useQueryParam("tab");
   if (error) return <ErrorBox error={error} onRetry={reload} />;
-  if (!a) return <Loading />;
+  if (!a) return <Skeleton />;
   const details = a.details ?? {};
+  const eolLink = safeUrl(a.eol?.link);
+  const open = a.findings.filter((f) => f.currently_matching && (f.status === "open" || f.status === "acknowledged")).length;
+  const where = a.host_id ? { label: a.host_name, to: `/hosts/${a.host_id}?tab=fix` }
+    : a.repository_id ? { label: a.repository_label, to: `/repositories/${a.repository_id}?tab=fix` } : null;
   return (
     <>
-      <PageHead title={a.name} sub={<>{label(TYPES, a.component_type)} · <CheckState s={a.check_state} /></>}
+      <PageHead title={a.name} crumbs={[["Assets", "/assets"]]}
+        sub={<>{label(TYPES, a.component_type)}{a.ecosystem && ` · ${a.ecosystem}`} · <span className="ver">{versionText(a.version, a.version_status, a.version_spec)}</span></>}
+        meta={<><CheckState s={a.check_state} /><Eol s={a.eol_state} info={a.eol} quiet={false} /></>}
         actions={<>
           <Link to={`/assets/${a.id}/edit`} className="btn">Edit</Link>
           <DangerButton question={`Delete ${a.name}? Its findings and history are removed too.`}
-            onConfirm={async () => { await del(`/api/assets/${a.id}`); navigate("/assets"); }}>Delete</DangerButton>
+            onConfirm={async () => { await del(`/api/assets/${a.id}`); toast("Asset deleted."); navigate("/assets"); }}>Delete</DangerButton>
         </>} />
       {a.missing_since && <div className="alert warn">Not present in the latest scan (since <When iso={a.missing_since} />). Its findings were auto-resolved.</div>}
-      <div className="grid two">
+      <Tabs value={tab || "overview"} onChange={setTab} tabs={[
+        ["overview", "Overview"], ["findings", <>Findings <span className="num">{open}</span></>], ["history", "History"],
+      ]} />
+      {(tab || "overview") === "overview" && <div className="grid two">
         <section className="card">
           <h2>Details</h2>
           <KV rows={[
-            ["Version", versionText(a.version, a.version_status, a.version_spec)],
+            ["Version", <span className="ver">{versionText(a.version, a.version_status, a.version_spec)}</span>],
             ["Version status", a.version_status],
             ["Ecosystem", a.ecosystem],
             ["Matched as", a.source_package && a.source_package !== a.name ? `${a.source_package} (source package)` : null],
+            ["CPE product", a.cpe ? <code>{a.cpe}</code> : null],
             ["Vendor", a.vendor],
             ["Host", a.host_id ? <Link to={`/hosts/${a.host_id}`}>{a.host_name}</Link> : null],
             ["Host IP", a.host_ip],
@@ -214,32 +210,36 @@ export function AssetDetailPage({ id }: { id: number }) {
           {typeof details.note === "string" && <p className="small muted">{details.note}</p>}
           {a.notes && <><h3>Notes</h3><p className="pre">{a.notes}</p></>}
         </section>
-        <section className="card">
-          <h2>Paths</h2>
-          {a.paths.length === 0 ? <p className="muted">No file or folder paths recorded.</p> : (
-            <ul className="paths">{a.paths.map((p) => <li key={p.path}><code>{p.path}</code> <span className="muted small">{p.kind}</span></li>)}</ul>
+        <div className="stack">
+          {a.eol && (
+            <section className="card">
+              <h2>Support</h2>
+              <KV rows={[
+                ["Product", a.eol.label], ["Release cycle", a.eol.cycle], ["Support ends", a.eol.eol_from ?? "not announced"],
+                ["Latest in cycle", a.eol.latest_in_cycle], ["Newest supported", a.eol.newest_supported],
+              ]} />
+              {eolLink && <p className="small"><a href={eolLink} target="_blank" rel="noopener noreferrer">endoflife.date <Icon name="external" size={12} /></a></p>}
+            </section>
           )}
-          <h2>Scan history</h2>
-          {a.history.length === 0 ? <p className="muted">Manually entered; no scan history.</p> : (
-            <table className="table compact"><tbody>{a.history.map((h) => (
-              <tr key={h.scan_run_id + h.seen_at}><td><Link to={`/scans/${h.scan_run_id}`}>#{h.scan_run_id}</Link> {h.kind}</td>
-                <td>{h.version ?? "unknown"}</td><td><When iso={h.seen_at} /></td></tr>
-            ))}</tbody></table>
-          )}
-        </section>
-      </div>
-      <section className="card">
-        <h2>Vulnerability findings</h2>
-        {a.findings.length > 0 ? <FindingTable items={a.findings} showAsset={false} /> : (
-          <p className="muted">{{
-            no_known_vulns: "No advisory in OSV matches this exact version as of the last check.",
-            stale: "No matches at the last check, but feed data is stale. Refresh feeds before relying on this.",
-            not_checked_yet: "Not checked yet. Run a feed refresh.",
-            version_unknown: "No findings, but the version is unknown so Patchy cannot confirm this is unaffected.",
-            not_checkable: "No supported vulnerability source covers this component. Patchy cannot assess it.",
-          }[a.check_state] ?? "No findings."}</p>
-        )}
-      </section>
+          <section className="card">
+            <h2>Paths</h2>
+            {a.paths.length === 0 ? <p className="muted">No file or folder paths recorded.</p> : (
+              <ul className="paths">{a.paths.map((p) => <li key={p.path}><code>{p.path}</code> <span className="muted small">{p.kind}</span></li>)}</ul>
+            )}
+          </section>
+        </div>
+      </div>}
+      {tab === "findings" && (a.findings.length > 0 ? <>
+        {where && open > 0 && <div className="alert info"><Icon name="fix" /> <span>Upgrade steps for this asset are in the <Link to={where.to}>{where.label} fix plan</Link>.</span></div>}
+        <FindingTable items={a.findings} showAsset={false} table="asset-findings" />
+      </> : <Empty title="No findings.">{NO_FINDINGS[a.check_state] ?? ""}</Empty>)}
+      {tab === "history" && (a.history.length === 0 ? <Empty title="No scan history.">Entered manually.</Empty> : (
+        <div className="table-wrap"><table className="table compact"><thead><tr><th>Scan</th><th>Version seen</th><th>When</th></tr></thead>
+          <tbody>{a.history.map((h) => (
+            <tr key={h.scan_run_id + h.seen_at}><td><Link to={`/scans/${h.scan_run_id}`}>#{h.scan_run_id}</Link> {h.kind}</td>
+              <td className="ver">{h.version ?? "unknown"}</td><td><When iso={h.seen_at} /></td></tr>
+          ))}</tbody></table></div>
+      ))}
     </>
   );
 }

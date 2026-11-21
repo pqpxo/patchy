@@ -2,19 +2,33 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .. import repo_scanner, vulns
 from ..db import get_db, utcnow
-from ..models import (Agent, Component, ComponentObservation, ComponentPath, Finding, Host, HostPath, HostService, Repository,
-                      ScanRun, User)
+from ..models import (Advisory, Agent, Component, ComponentObservation, ComponentPath, Finding, Host, HostPath,
+                      HostService, Repository, ScanRun, User)
 from ..schemas import (AgentOut, AgentTokenOut, AssetIn, ComponentDetail, ComponentOut, HostIn, HostOut,
                        HostPathOut, ObservationOut, Page, RepoIn, RepoOut, ScanRunOut, ServiceOut)
 from ..security import audit, client_ip, new_agent_token, require_user, sha256
 from ..worker import enqueue
-from .common import OPEN, component_out, finding_out, finding_stats, paginate, repo_label
+from .common import OPEN, bundled_agent_version, component_out, finding_out, finding_stats, paginate, repo_label
+
+SEV_RANK = case({"critical": 5, "high": 4, "medium": 3, "low": 2, "none": 1}, value=Advisory.severity, else_=0)
+EOL_RANK = case({"eol": 2, "eol_soon": 1}, value=Component.eol_state, else_=0)
+
+
+def _open_findings_of(column):
+    """Correlated count of open, currently matching findings, for sorting lists by it."""
+    return (select(func.count(Finding.id)).join(Component).where(
+        column, Finding.status.in_(OPEN), Finding.currently_matching.is_(True)).correlate_except(Finding, Component)
+        .scalar_subquery())
+
+
+def _order(col, order):
+    return col.desc() if order == "desc" else col.asc()
 
 router = APIRouter(prefix="/api", tags=["inventory"])
 
@@ -26,11 +40,21 @@ def _404(obj, what="Not found."):
 
 
 def _open_counts(db, column, ids):
+    """{id: {"total": n, "<severity>": n, "kev": n}} of open, currently matching findings."""
     if not ids:
         return {}
-    rows = db.execute(select(column, func.count()).select_from(Finding).join(Component).where(
-        column.in_(ids), Finding.status.in_(OPEN), Finding.currently_matching.is_(True)).group_by(column)).all()
-    return dict(rows)
+    rows = db.execute(select(column, Advisory.severity, Advisory.kev, func.count()).select_from(Finding)
+                      .join(Component).join(Advisory).where(
+        column.in_(ids), Finding.status.in_(OPEN), Finding.currently_matching.is_(True))
+        .group_by(column, Advisory.severity, Advisory.kev)).all()
+    out: dict = {}
+    for key, sev, kev, n in rows:
+        e = out.setdefault(key, {"total": 0})
+        e["total"] += n
+        e[sev or "unknown"] = e.get(sev or "unknown", 0) + n
+        if kev:
+            e["kev"] = e.get("kev", 0) + n
+    return out
 
 
 def _comp_counts(db, column, ids):
@@ -47,7 +71,10 @@ def list_assets(db: Session = Depends(get_db), _: User = Depends(require_user),
                 q: str | None = Query(None, max_length=200), component_type: str | None = None,
                 source: str | None = None, ecosystem: str | None = None, host_id: int | None = None,
                 repository_id: int | None = None, include_missing: bool = False, vulnerable_only: bool = False,
-                sort: Literal["name", "type", "updated", "version"] = "name", order: Literal["asc", "desc"] = "asc",
+                eol_state: list[Literal["eol", "eol_soon", "supported"]] = Query(None),
+                sort: Literal["name", "type", "updated", "version", "ecosystem", "source", "location", "findings",
+                              "severity", "eol", "checked"] = "name",
+                order: Literal["asc", "desc"] = "asc",
                 page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
     query = select(Component)
     if q:
@@ -62,9 +89,21 @@ def list_assets(db: Session = Depends(get_db), _: User = Depends(require_user),
     if vulnerable_only:
         query = query.where(Component.id.in_(select(Finding.component_id).where(
             Finding.status.in_(OPEN), Finding.currently_matching.is_(True))))
-    col = {"name": Component.name, "type": Component.component_type, "updated": Component.updated_at,
-           "version": Component.version}[sort]
-    query = query.order_by(col.desc() if order == "desc" else col.asc(), Component.id)
+    if eol_state:
+        query = query.where(Component.eol_state.in_(eol_state))
+    open_here = (Finding.component_id == Component.id, Finding.status.in_(OPEN), Finding.currently_matching.is_(True))
+    if sort == "location":
+        query = query.outerjoin(Host, Component.host_id == Host.id).outerjoin(
+            Repository, Component.repository_id == Repository.id)
+    col = {
+        "name": func.lower(Component.name), "type": Component.component_type, "updated": Component.updated_at,
+        "version": Component.version, "ecosystem": Component.ecosystem, "source": Component.source,
+        "location": func.coalesce(Host.name, Repository.name) if sort == "location" else Component.id,
+        "findings": select(func.count(Finding.id)).where(*open_here).scalar_subquery(),
+        "severity": select(func.max(SEV_RANK)).select_from(Finding).join(Advisory).where(*open_here).scalar_subquery(),
+        "eol": EOL_RANK, "checked": Component.vuln_checked_at,
+    }[sort]
+    query = query.order_by(_order(col, order), Component.id)
     items, total = paginate(db, query, page, page_size)
     stats, stale = finding_stats(db, [c.id for c in items]), vulns.feed_is_stale(db)
     return Page(items=[component_out(c, stats, stale) for c in items], total=total, page=page, page_size=page_size)
@@ -72,7 +111,7 @@ def list_assets(db: Session = Depends(get_db), _: User = Depends(require_user),
 
 def _apply_asset(db: Session, c: Component, body: AssetIn) -> None:
     for f in ("name", "component_type", "vendor", "ecosystem", "listen_ip", "port", "protocol", "install_path",
-              "notes"):
+              "cpe", "notes"):
         setattr(c, f, getattr(body, f))
     c.version = body.version
     c.version_status = body.version_status if body.version else "unknown"
@@ -167,17 +206,27 @@ def delete_asset(asset_id: int, request: Request, db: Session = Depends(get_db),
 def _host_out(db, h: Host, comps=None, opens=None) -> HostOut:
     return HostOut.model_validate({**{k: getattr(h, k) for k in HostOut.model_fields if hasattr(h, k)},
                                    "agent": AgentOut.model_validate(h.agent) if h.agent else None,
+                                   "agent_outdated": bool(h.agent and h.agent.agent_version and not h.agent.revoked_at
+                                                          and h.agent.agent_version != bundled_agent_version()),
                                    "component_count": (comps or {}).get(h.id, 0),
-                                   "open_findings": (opens or {}).get(h.id, 0)})
+                                   "open_findings": (opens or {}).get(h.id, {}).get("total", 0),
+                                   "exposure": (opens or {}).get(h.id)})
 
 
 @router.get("/hosts", response_model=Page[HostOut])
 def list_hosts(db: Session = Depends(get_db), _: User = Depends(require_user),
                q: str | None = Query(None, max_length=200),
+               sort: Literal["name", "ip", "os", "last_report", "components", "findings", "eol"] = "name",
+               order: Literal["asc", "desc"] = "asc",
                page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
-    query = select(Host).order_by(Host.name)
+    col = {"name": func.lower(Host.name), "ip": Host.ip, "os": Host.os_name, "last_report": Host.last_report_at,
+           "components": select(func.count(Component.id)).where(Component.host_id == Host.id,
+                                                                 Component.missing_since.is_(None)).scalar_subquery(),
+           "findings": _open_findings_of(Component.host_id == Host.id),
+           "eol": case({"eol": 2, "eol_soon": 1}, value=Host.os_eol_state, else_=0)}[sort]
+    query = select(Host).order_by(_order(col, order), Host.id)
     if q:
-        query = query.where(Host.name.icontains(q, autoescape=True))
+        query = query.where(Host.name.icontains(q, autoescape=True) | Host.ip.icontains(q, autoescape=True))
     items, total = paginate(db, query, page, page_size)
     ids = [h.id for h in items]
     comps, opens = _comp_counts(db, Component.host_id, ids), _open_counts(db, Component.host_id, ids)
@@ -278,15 +327,31 @@ def revoke_agent(host_id: int, request: Request, db: Session = Depends(get_db), 
 
 def _repo_out(db, r: Repository, comps=None, opens=None) -> RepoOut:
     last = db.scalar(select(ScanRun.status).where(ScanRun.repository_id == r.id).order_by(ScanRun.id.desc()).limit(1))
+    dep = r.dependabot or {}
     return RepoOut.model_validate({**{k: getattr(r, k) for k in RepoOut.model_fields if hasattr(r, k)},
                                    "component_count": (comps or {}).get(r.id, 0),
-                                   "open_findings": (opens or {}).get(r.id, 0), "last_scan_status": last})
+                                   "open_findings": (opens or {}).get(r.id, {}).get("total", 0),
+                                   "exposure": (opens or {}).get(r.id), "last_scan_status": last,
+                                   "dependabot_total": dep.get("total") if dep and not dep.get("error") else None,
+                                   "dependabot_only": (dep.get("total", 0) - dep.get("also_in_patchy", 0))
+                                   if dep and not dep.get("error") else None,
+                                   "dependabot_error": dep.get("error")})
 
 
 @router.get("/repositories", response_model=Page[RepoOut])
 def list_repos(db: Session = Depends(get_db), _: User = Depends(require_user),
+               q: str | None = Query(None, max_length=200),
+               sort: Literal["name", "last_scanned", "components", "findings"] = "name",
+               order: Literal["asc", "desc"] = "asc",
                page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
-    items, total = paginate(db, select(Repository).order_by(Repository.owner, Repository.name), page, page_size)
+    col = {"name": func.lower(Repository.owner + "/" + Repository.name), "last_scanned": Repository.last_scanned_at,
+           "components": select(func.count(Component.id)).where(Component.repository_id == Repository.id,
+                                                                 Component.missing_since.is_(None)).scalar_subquery(),
+           "findings": _open_findings_of(Component.repository_id == Repository.id)}[sort]
+    query = select(Repository).order_by(_order(col, order), Repository.id)
+    if q:
+        query = query.where(Repository.name.icontains(q, autoescape=True) | Repository.owner.icontains(q, autoescape=True))
+    items, total = paginate(db, query, page, page_size)
     ids = [r.id for r in items]
     comps, opens = _comp_counts(db, Component.repository_id, ids), _open_counts(db, Component.repository_id, ids)
     return Page(items=[_repo_out(db, r, comps, opens) for r in items], total=total, page=page, page_size=page_size)
@@ -316,7 +381,7 @@ def get_repo(repo_id: int, db: Session = Depends(get_db), _: User = Depends(requ
     runs = db.scalars(select(ScanRun).where(ScanRun.repository_id == r.id).order_by(ScanRun.id.desc()).limit(20)).all()
     return {"repository": _repo_out(db, r, _comp_counts(db, Component.repository_id, [r.id]),
                                     _open_counts(db, Component.repository_id, [r.id])),
-            "runs": [ScanRunOut.model_validate(x) for x in runs]}
+            "runs": [ScanRunOut.model_validate(x) for x in runs], "dependabot": r.dependabot}
 
 
 @router.delete("/repositories/{repo_id}", status_code=204)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { qs } from "./api";
-import { ago, safeUrl, versionText } from "./format";
+import { HOURS_LABEL, ago, pct, safeUrl, versionText } from "./format";
 
 describe("format helpers", () => {
   it("only allows http(s) links", () => {
@@ -25,5 +25,16 @@ describe("format helpers", () => {
 
   it("builds query strings without empty values", () => {
     expect(qs({ a: 1, b: "", c: ["x", "y"], d: undefined })).toBe("?a=1&c=x&c=y");
+  });
+
+  it("formats EPSS and schedules", () => {
+    expect(pct(null)).toBe("-");
+    expect(pct(0.0004)).toBe("<0.1%");
+    expect(pct(0.0523)).toBe("5.2%");
+    expect(pct(0.97)).toBe("97%");
+    expect(pct(0.9996)).toBe(">99%");
+    expect(HOURS_LABEL(0)).toBe("Manual only");
+    expect(HOURS_LABEL(24)).toBe("Daily");
+    expect(HOURS_LABEL(72)).toBe("Every 3 days");
   });
 });
