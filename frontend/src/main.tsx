@@ -193,7 +193,6 @@ function App() {
           <Link to="/settings" className={active("/settings") ? "nav-item on" : "nav-item"} title="Settings">
             <Icon name="settings" /><span className="label">Settings</span>
           </Link>
-          <span className="who">Signed in as {user}</span>
           <div className="row">
             <button className="icon-btn" title={night ? "Switch to day" : "Switch to night"} aria-label={night ? "Switch to day mode" : "Switch to night mode"}
               onClick={() => setPrefs({ mode: night ? "day" : "night" })}><Icon name={night ? "sun" : "moon"} /></button>

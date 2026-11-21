@@ -139,9 +139,9 @@ export default function Dashboard() {
           <section className="card">
             <div className="card-head"><h2>Recent activity</h2><Link to="/scans" className="small">All scans</Link></div>
             {data.recent_scans.length === 0 ? <p className="muted">No scans yet.</p> : (
-              <ul className="meter-list">{data.recent_scans.map((s) => (
-                <li key={s.id}><span><Link to={`/scans/${s.id}`}>#{s.id}</Link> {s.target ?? s.kind}</span>
-                  <span className="small"><Status s={s.status} /> <span className="muted"><When iso={s.finished_at ?? s.created_at} /></span></span></li>
+              <ul className="activity">{data.recent_scans.map((s) => (
+                <li key={s.id}><span className="what"><Link to={`/scans/${s.id}`}>#{s.id}</Link> {s.target ?? s.kind}</span>
+                  <span className="when"><When iso={s.finished_at ?? s.created_at} /></span><Status s={s.status} /></li>
               ))}</ul>
             )}
           </section>
