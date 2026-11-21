@@ -15,7 +15,7 @@ Self-hosted software inventory and vulnerability tracker for a home lab. Registe
 - [Scanning GitHub repositories](#scanning-github-repositories)
 - [Linux agent](#linux-agent)
 - [Vulnerability feeds](#vulnerability-feeds)
-- [How to fix](#how-to-fix)
+- [Fixes](#fixes)
 - [Themes and views](#themes-and-views)
 - [How matching works](#how-matching-works)
 - [API](#api)
@@ -34,15 +34,15 @@ Self-hosted software inventory and vulnerability tracker for a home lab. Registe
 - **Linux agent**: one read-only Python script on a systemd timer. It sends reports outbound over HTTPS using a revocable per-host token.
 - **Vulnerabilities**: OSV matching with evidence, NVD product (CPE) matching for servers and runtimes, CISA KEV flags, FIRST EPSS exploit likelihood, NVD scores, fixed versions and remediation taken from the advisory.
 - **End of life**: support dates from endoflife.date for runtimes, frameworks, servers and host operating systems.
-- **How to fix**: open findings grouped into the fewest upgrade steps per host, repository and manifest, with a copy-paste command where it's safe to give one.
+- **Fixes**: open findings grouped into the fewest upgrade steps per host, repository and manifest, with a copy-paste command where it's safe to give one.
 - **GitHub Dependabot**: cross-checks each repository's Dependabot alerts against Patchy's own findings.
 - **Per-source schedules**: switch each source on or off and choose how often it refreshes, from Settings.
-- **Interface**: 8 colour schemes with day and night modes, 6 font styles, compact density, sortable tables with a column chooser, quick search (Ctrl+K). Version and changelog in Settings.
+- **Interface**: 18 colour schemes with day and night modes, 6 font styles, compact density, sortable tables with a column chooser, quick search (Ctrl+K). Version and changelog in Settings.
 - **Honest states**: confirmed, possible and version-unknown matches are kept separate. "Not checked" and "stale feed" are never shown as clean.
 - **Workflow**: open, acknowledged, resolved and false-positive states with notes. Findings auto-resolve when the version moves out of range and reopen if it moves back.
 - **Audit log** of logins, asset changes, scans, agent enrolment and revocation, and status changes.
 
-| How to fix | Vulnerabilities |
+| Fixes | Vulnerabilities |
 |---|---|
 | ![Fix plan](docs/screenshots/fix.jpg) | ![Vulnerabilities](docs/screenshots/vulnerabilities.jpg) |
 | **Host and agent** | **Themes (Harbour, day)** |
@@ -257,9 +257,9 @@ Names must match exactly after ecosystem normalisation (PEP 503 for PyPI). A sim
 
 <br>
 
-## How to fix
+## Fixes
 
-Each host and repository has a **How to fix** tab, and **How to fix** in the sidebar covers everything.
+Each host and repository has a **Fixes** tab, and **Fixes** in the sidebar covers everything.
 
 - Findings are grouped by host and package manager, or by repository manifest. Each group is one upgrade step, ordered known-exploited first, then by severity.
 - The target version is the smallest release that fixes every advisory with a published fix.
@@ -273,7 +273,7 @@ Each host and repository has a **How to fix** tab, and **How to fix** in the sid
 
 ## Themes and views
 
-Settings, Appearance: 8 colour schemes (Navy, Graphite, Harbour, Fern, Plum, Ember, Sand, High contrast), each with day and night modes or follow the system, 6 font styles using fonts already on the device (nothing is downloaded), comfortable or compact density, and rows per page. Choices are saved per browser.
+Settings, Appearance: 18 colour schemes (Navy, Graphite, Harbour, Fern, Plum, Ember, Sand, Steel, Indigo, Midnight, Ocean, Mint, Forest, Moss, Copper, Rose, Berry, High contrast), each with day and night modes or follow the system, 6 font styles using fonts already on the device (nothing is downloaded), comfortable or compact density, and rows per page. Choices are saved per browser.
 
 Every table can be sorted by clicking a column header (again to reverse), and **Columns** chooses which columns show. Sort and filters live in the URL, so a filtered view can be bookmarked. Press <kbd>Ctrl</kbd>+<kbd>K</kbd> to jump to any page, host or repository.
 
