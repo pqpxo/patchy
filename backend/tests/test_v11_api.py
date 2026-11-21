@@ -92,6 +92,13 @@ def test_fix_plan_groups_targets_and_never_puts_unsafe_names_in_commands(auth_cl
     assert auth_client.get("/api/fix-plan", params={"host_id": 999}).json()["summary"]["components"] == 0
 
 
+def test_repo_list_carries_severity_exposure(auth_client, db):
+    _repo_with_findings(db)
+    repo = auth_client.get("/api/repositories").json()["items"][0]
+    assert repo["open_findings"] == 4
+    assert repo["exposure"] == {"total": 4, "high": 1, "medium": 2, "low": 1, "kev": 1}
+
+
 def test_safe_rejects_shell_metacharacters():
     assert fixplan.safe("@angular/core", "17.0.1", "libssl3", "1:2.36-9+deb12u4")
     for bad in ("a;b", "$(x)", "`x`", "a b", "a|b", "a&b", "-rf", "a'b", 'a"b', "a>b", ""):
