@@ -139,7 +139,7 @@ export function RepoDetailPage({ id }: { id: number }) {
       <RunBanner run={last} what="Scan" />
       <Tabs value={t} onChange={setTab} tabs={[
         ["overview", "Overview"], ["assets", <>Assets <span className="num">{r.component_count}</span></>],
-        ["findings", <>Findings <span className="num">{r.open_findings}</span></>], ["fix", "How to fix"],
+        ["findings", <>Findings <span className="num">{r.open_findings}</span></>], ["fix", "Fixes"],
         ["dependabot", <>Dependabot {r.dependabot_total != null && <span className="num">{r.dependabot_total}</span>}</>], ["history", "Scan history"],
       ]} />
       {t === "overview" && <div className="grid two">
