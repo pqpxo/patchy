@@ -10,7 +10,7 @@ os.environ["NVD_API_KEY"] = ""
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import String, event, inspect  # noqa: E402
+from sqlalchemy import JSON, String, event, inspect  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 from app.db import Base, SessionLocal, engine  # noqa: E402
@@ -30,6 +30,20 @@ def _enforce_varchar_lengths(session, _ctx, _instances):
             if isinstance(col.type, String) and col.type.length and isinstance(value, str)                     and len(value) > col.type.length:
                 raise AssertionError(f"{col.table.name}.{col.name} is VARCHAR({col.type.length}) "
                                      f"but got {len(value)} characters")
+
+
+JSON_COLUMNS = {f"{col.table.name}.{col.name}" for table in Base.metadata.tables.values() for col in table.columns
+                if isinstance(col.type, JSON)}
+
+
+@event.listens_for(engine, "before_cursor_execute")
+def _refuse_distinct_on_json(_conn, _cursor, statement, _params, _context, _many):
+    """Postgres can't SELECT DISTINCT over json columns (SQLite can), so fail tests the way production would."""
+    head = statement.split(" FROM ", 1)[0]
+    if head.lstrip().upper().startswith("SELECT DISTINCT"):
+        bad = [c for c in JSON_COLUMNS if c in head]
+        if bad:
+            raise AssertionError(f"SELECT DISTINCT over JSON columns fails on Postgres: {sorted(bad)[:3]}")
 
 
 @pytest.fixture(autouse=True)
