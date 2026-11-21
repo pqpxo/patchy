@@ -60,8 +60,7 @@ def github_client(transport=None) -> httpx.Client:
     return httpx.Client(timeout=30, headers=headers, follow_redirects=True, transport=transport)
 
 
-def _get(client: httpx.Client, url: str, **kw) -> httpx.Response:
-    r = client.get(url, **kw)
+def _check(r: httpx.Response) -> httpx.Response:
     if r.status_code == 404:
         raise ScanError("Repository, branch or file not found. Private repositories need GITHUB_TOKEN "
                         "configured on the server.")
@@ -69,21 +68,29 @@ def _get(client: httpx.Client, url: str, **kw) -> httpx.Response:
         hint = "rate limit reached" if r.headers.get("x-ratelimit-remaining") == "0" else "access denied"
         raise ScanError(f"GitHub returned {r.status_code} ({hint}). Configure GITHUB_TOKEN for higher limits "
                         "or private repositories.")
-    r.raise_for_status()
+    if r.status_code >= 400:
+        raise ScanError(f"GitHub returned HTTP {r.status_code}.")
     return r
+
+
+def _get(client: httpx.Client, url: str, **kw) -> httpx.Response:
+    return _check(client.get(url, **kw))
+
+
+class FileTooLarge(ScanError):
+    pass
 
 
 def _fetch_file(client: httpx.Client, owner: str, repo: str, sha: str, path: str, limit: int) -> bytes:
     """Stream a file with a hard byte cap. API raw endpoint so a token (if any) applies."""
     url = f"{GITHUB_API}/repos/{owner}/{repo}/contents/{quote(path)}"
     with client.stream("GET", url, params={"ref": sha}, headers={"Accept": "application/vnd.github.raw"}) as r:
-        if r.status_code >= 400:
-            raise ScanError(f"HTTP {r.status_code}")
+        _check(r)  # any HTTP error aborts the scan: a half-read repo must not mark components missing
         buf = bytearray()
         for chunk in r.iter_bytes():
             buf += chunk
             if len(buf) > limit:
-                raise ScanError("file exceeds size limit")
+                raise FileTooLarge("file exceeds size limit")
         return bytes(buf)
 
 
@@ -137,11 +144,12 @@ def scan_repository(db: Session, run: ScanRun, client: httpx.Client, clock=time.
         progress(f"Parsing manifests {i}/{len(candidates)}")
         try:
             raw = _fetch_file(client, owner, name, sha, path, settings.repo_max_file_bytes)
-            total += len(raw)
-            found = parsers.parser_for(path)(raw.decode("utf-8", errors="replace"))
-        except ScanError as e:
+        except FileTooLarge as e:
             skipped.append({"path": path, "reason": str(e)})
             continue
+        total += len(raw)
+        try:
+            found = parsers.parser_for(path)(raw.decode("utf-8", errors="replace"))
         except Exception as e:  # untrusted input: never echo content, only the error type
             skipped.append({"path": path, "reason": f"could not parse ({type(e).__name__})"})
             continue
