@@ -1,0 +1,15 @@
+{
+  "server_url": "https://patchy.example.lan",
+  "token_file": "/etc/patchy-agent/token",
+  "ca_file": null,
+  "allow_insecure_http": false,
+  "timeout_seconds": 30,
+  "collect": {
+    "packages": true,
+    "listening_ports": true,
+    "services": true,
+    "docker_images": false,
+    "version_probes": ["nginx", "apache2", "httpd", "caddy", "python3", "node", "openssl", "openssh", "docker"]
+  },
+  "app_dirs": []
+}
