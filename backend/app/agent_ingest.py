@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from typing import Annotated, Literal
+from urllib.parse import unquote
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import delete, select
@@ -85,6 +86,7 @@ class ContainerMount(_M):
 
 class Container(_M):
     image: S
+    image_id: S | None = None
     name: S | None = None
     state: S | None = None
     status: S | None = None
@@ -93,6 +95,22 @@ class Container(_M):
     compose_service: S | None = None
     ports: list[ContainerPort] = Field(default_factory=list, max_length=200)
     mounts: list[ContainerMount] = Field(default_factory=list, max_length=200)
+
+
+class ImagePackage(_M):
+    type: S
+    name: S
+    version: S
+    source_name: S | None = None
+    source_version: S | None = None
+    purl: P | None = None
+
+
+class ImageScan(_M):
+    image_id: S | None = None
+    image: S
+    distro: OsInfo = OsInfo()
+    packages: list[ImagePackage] = Field(default_factory=list, max_length=20000)
 
 
 class App(_M):
@@ -119,6 +137,7 @@ class Report(_M):
     services: list[Service] = Field(default_factory=list, max_length=2000)
     containers: list[Container] = Field(default_factory=list, max_length=1000)
     apps: list[App] = Field(default_factory=list, max_length=5000)
+    images: list[ImageScan] = Field(default_factory=list, max_length=100)
     paths: list[PathListing] = Field(default_factory=list, max_length=20)
     errors: list[Annotated[str, StringConstraints(max_length=500)]] = Field(default_factory=list, max_length=100)
 
@@ -139,6 +158,47 @@ def os_ecosystem(os: OsInfo, manager: str) -> str | None:
         major = ver.split(".")[0]
         return {"rocky": f"Rocky Linux:{major}", "almalinux": f"AlmaLinux:{major}"}.get(oid)
     return None
+
+
+PURL_ECOSYSTEMS = {"npm": "npm", "pypi": "PyPI", "golang": "Go", "cargo": "crates.io", "gem": "RubyGems",
+                   "composer": "Packagist", "maven": "Maven", "nuget": "NuGet"}
+PURL = re.compile(r"^pkg:([a-z0-9.+-]+)/([^@?#]+)@([^?#]+)")
+DISTRO_TYPES = {"deb": "dpkg", "apk": "apk", "rpm": "rpm"}
+
+
+def purl_package(purl: str | None) -> tuple[str, str, str] | None:
+    """(OSV ecosystem, package name, version) from a package URL, named the way Patchy's manifest parsers name them."""
+    m = PURL.match(purl or "")
+    if not m or m.group(1) not in PURL_ECOSYSTEMS:
+        return None
+    kind, name, version = m.group(1), unquote(m.group(2)), unquote(m.group(3))
+    if kind == "maven":
+        name = name.replace("/", ":", 1)  # group/artifact -> group:artifact
+    return PURL_ECOSYSTEMS[kind], name, version
+
+
+def image_rows(report: Report) -> list[dict]:
+    """Components for the packages Syft found inside each container image, tagged with the image they live in."""
+    rows = []
+    for img in report.images:
+        users = sorted({c.name for c in report.containers if c.name and img.image_id and c.image_id == img.image_id})
+        base = {"image": img.image, "containers": users[:20]}
+        groups: dict[tuple, set] = {}
+        for p in img.packages:
+            if p.type in DISTRO_TYPES:
+                key = (DISTRO_TYPES[p.type], p.source_name or p.name, p.source_version or p.version)
+                groups.setdefault(key, set()).add(p.name)
+            elif parsed := purl_package(p.purl):
+                eco, name, version = parsed
+                rows.append({"identity": f"image|{img.image}|{eco}|{name}", "name": name, "component_type": "library",
+                             "ecosystem": eco, "version": version, "version_status": "exact",
+                             "details": {**base, "manager": p.type}, "paths": []})
+        for (manager, src, src_ver), binaries in groups.items():
+            rows.append({"identity": f"image|{img.image}|pkg|{manager}|{src}", "name": src, "component_type": "os_package",
+                         "ecosystem": os_ecosystem(img.distro, manager), "version": src_ver, "version_status": "exact",
+                         "source_package": src, "source_version": src_ver, "vendor": img.distro.id,
+                         "details": {**base, "manager": manager, "binaries": sorted(binaries)[:200]}, "paths": []})
+    return rows
 
 
 def ingest(db: Session, agent: Agent, report: Report, ip: str) -> tuple[ScanRun, bool, list[int]]:
@@ -206,7 +266,8 @@ def ingest(db: Session, agent: Agent, report: Report, ip: str) -> tuple[ScanRun,
                 "version": a.version, "version_status": "exact" if a.version else "unknown",
                 "details": {"note": f"installed with {a.manager}"}, "paths": [],
             })
-    ids = sync_components(db, run, f"host:{host.id}", rows, source="agent", host_id=host.id)
+    image_items = image_rows(report)
+    ids = sync_components(db, run, f"host:{host.id}", rows + image_items, source="agent", host_id=host.id)
 
     db.execute(delete(HostService).where(HostService.host_id == host.id))
     db.execute(delete(HostPath).where(HostPath.host_id == host.id))
@@ -241,6 +302,7 @@ def ingest(db: Session, agent: Agent, report: Report, ip: str) -> tuple[ScanRun,
     run.summary = {"packages": len(report.packages), "components": len(rows), "probes": len(report.probes),
                    "listening": len(report.listening), "services": len(report.services),
                    "containers": len(report.containers), "apps": len(report.apps),
+                   "images_scanned": len(report.images), "image_packages": len(image_items),
                    "path_entries_dropped_as_sensitive": dropped, "agent_errors": report.errors[:50],
                    "unmapped_os": not any(r["ecosystem"] for r in rows if r["component_type"] == "os_package")
                    and bool(report.packages)}

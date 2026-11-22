@@ -7,7 +7,7 @@ import { CheckState, DataTable, Eol, Epss, Kev, Link, Match, Sev, Status, When, 
 const assetCols: Col<Asset>[] = [
   { id: "name", label: "Name", sort: "name", fixed: true, cell: (a) => <>
     <Link to={`/assets/${a.id}`}>{a.name}</Link>
-    {a.ecosystem && <div className="cell-sub">{a.ecosystem}</div>}
+    {(a.ecosystem || a.image) && <div className="cell-sub">{a.ecosystem}{a.ecosystem && a.image && " · "}{a.image && `in image ${a.image}`}</div>}
   </> },
   { id: "version", label: "Version", sort: "version", cell: (a) =>
     <span className={a.version_status === "exact" ? "ver" : "ver muted"}>{versionText(a.version, a.version_status, a.version_spec)}</span> },
@@ -43,9 +43,12 @@ const findingCols: Col<Finding>[] = [
   </> },
   { id: "asset", label: "Asset", sort: "component", cell: (f) => <>
     <Link to={`/assets/${f.component_id}`}>{f.component_name}</Link> <span className="ver muted">{f.component_version}</span>
+    {f.image && <div className="cell-sub">in image {f.image}</div>}
   </> },
-  { id: "location", label: "Location", sort: "location", cell: (f) => f.host_id ? <Link to={`/hosts/${f.host_id}`}>{f.host_name}</Link>
-    : f.repository_id ? <Link to={`/repositories/${f.repository_id}`}>{f.repository_label}</Link> : <span className="muted">-</span> },
+  { id: "location", label: "Location", sort: "location", cell: (f) => <>
+    {f.host_id ? <Link to={`/hosts/${f.host_id}`}>{f.host_name}</Link>
+      : f.repository_id ? <Link to={`/repositories/${f.repository_id}`}>{f.repository_label}</Link> : <span className="muted">-</span>}
+  </> },
   { id: "epss", label: "EPSS", sort: "epss", first: "desc", cell: (f) => <Epss v={f.advisory.epss} p={f.advisory.epss_percentile} /> },
   { id: "cvss", label: "CVSS", sort: "cvss", first: "desc", num: true, hidden: true, cell: (f) => f.advisory.cvss_score ?? <span className="muted">-</span> },
   { id: "match", label: "Match", sort: "match", cell: (f) => <Match s={f.match_status} /> },

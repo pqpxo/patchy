@@ -3,11 +3,12 @@ import { get, post, put, type AuditEntry, type Feed, type Page, type ScanRun } f
 import { Icon } from "../icons";
 import { HOURS_LABEL, safeUrl } from "../format";
 import { FONTS, PAGE_SIZES, SCHEMES, resolvedMode, setPrefs, usePrefs, type Mode } from "../prefs";
-import { ErrorBox, Field, KV, PageHead, Pager, RunBanner, Skeleton, Switch, When, errText, toast, useLoad, useQueryParam } from "../ui";
+import { CodeBlock, ErrorBox, Field, KV, PageHead, Pager, RunBanner, Skeleton, Switch, When, errText, toast, useLoad, useQueryParam } from "../ui";
 
 interface SettingsData {
   github_token_configured: boolean; nvd_api_key_configured: boolean; feed_stale_hours: number; cookie_secure: boolean;
   repo_limits: Record<string, number>; hour_choices: number[]; version: string;
+  worker: { version: string; started_at: string } | null;
   coverage: { local_version_comparison: string[]; osv_queried: string[]; nvd_products?: string; inventory_only: string[] };
 }
 
@@ -274,6 +275,12 @@ export default function SettingsPage() {
         <div>
           <ErrorBox error={s.error} onRetry={s.reload} />
           {t === "appearance" && <Appearance />}
+          {t === "sources" && s.data && s.data.worker?.version !== s.data.version && <div className="alert warn" role="alert">
+            <p>{s.data.worker
+              ? <>The worker is running Patchy <span className="num">{s.data.worker.version}</span> but the app is <span className="num">{s.data.version}</span>, so sources refresh with old code. On the server, in the Patchy folder, run:</>
+              : <>The worker hasn't checked in since this update, so sources may not refresh. If this stays, run this on the server, in the Patchy folder:</>}</p>
+            <CodeBlock code="docker compose up -d --force-recreate worker" />
+          </div>}
           {t === "sources" && (s.data ? <Sources choices={s.data.hour_choices} /> : <Skeleton />)}
           {t === "system" && (s.data ? <System s={s.data} /> : <Skeleton />)}
           {t === "account" && <Account />}

@@ -2,6 +2,19 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.3.0 - 2026-11-22
+
+### Added
+- Container image scanning. With containers turned on, the agent can list the packages inside each running container's image with [Syft](https://github.com/anchore/syft) and Patchy checks them against OSV like any other package. Distro packages (Debian, Ubuntu, Alpine, Rocky, Alma) and app libraries (npm, PyPI, Go, Cargo, RubyGems, Composer, Maven, NuGet) are covered.
+- The Docker containers table on the host page shows each image's open findings, and findings and assets say which image a package is in.
+- Fixes groups image findings per image, with a `docker pull` command and advice to recreate the containers.
+- Settings, Sources warns when the worker container runs a different version from the app, with the command to fix it.
+
+### Changed
+- Agent 1.3.0. The installer offers Syft 1.56.0 once, when containers are on. It is downloaded from GitHub and its SHA-256 checked against a pinned value. Each image is scanned once and cached by image ID, at most 10 new images per run.
+- The worker service now builds from the Dockerfile too, so `docker compose up -d --build` always recreates it with the new code. An old worker was the cause of a FIRST EPSS error that stayed after 1.1.1 fixed it.
+- `AGENT_MAX_REPORT_BYTES` defaults to 32 MB (was 10 MB) to fit image package lists.
+
 ## 1.2.0 - 2026-11-22
 
 ### Added

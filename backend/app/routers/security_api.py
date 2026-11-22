@@ -15,7 +15,7 @@ from .. import matching as m
 from ..agent_ingest import Report, ingest
 from ..config import settings
 from ..db import get_db, utcnow
-from ..models import Advisory, AuditLog, Component, FeedStatus, Finding, Host, Repository, ScanRun, User
+from ..models import Advisory, AppSetting, AuditLog, Component, FeedStatus, Finding, Host, Repository, ScanRun, User
 from ..schemas import AuditOut, FeedOut, FindingOut, FindingStatusIn, Page, RefreshIn, ScanRunOut, SourceIn
 from ..security import audit, authenticate_agent, client_ip, limiter, require_user
 from ..worker import enqueue
@@ -202,6 +202,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(require_user))
         "nvd_api_key_configured": bool(settings.nvd_api_key),
         "sources": sources.schedule(db), "hour_choices": list(sources.HOUR_CHOICES),
         "feed_stale_hours": settings.feed_stale_hours, "version": __version__,
+        "worker": (w.value if (w := db.get(AppSetting, "worker")) else None),
         "repo_limits": {"max_file_bytes": settings.repo_max_file_bytes, "max_total_bytes": settings.repo_max_total_bytes,
                         "max_manifests": settings.repo_max_manifests, "timeout_seconds": settings.repo_scan_timeout},
         "cookie_secure": settings.cookie_secure,

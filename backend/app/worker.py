@@ -9,9 +9,9 @@ import time
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from . import repo_scanner, sources, vulns
+from . import __version__, repo_scanner, sources, vulns
 from .db import SessionLocal, utcnow
-from .models import ScanRun
+from .models import AppSetting, ScanRun
 
 log = logging.getLogger("patchy.worker")
 HEARTBEAT = pathlib.Path("/tmp/patchy-worker-heartbeat")
@@ -87,8 +87,9 @@ def main() -> None:
     with SessionLocal() as db:  # jobs left running by a crash/restart
         db.execute(update(ScanRun).where(ScanRun.status == "running", ScanRun.kind.in_(["repo", "feed"]))
                    .values(status="failed", error="Worker restarted while job was running.", finished_at=utcnow()))
+        db.merge(AppSetting(key="worker", value={"version": __version__, "started_at": utcnow().isoformat()}))
         db.commit()
-    log.info("worker started")
+    log.info("worker %s started", __version__)
     while not stop:
         HEARTBEAT.touch()
         with SessionLocal() as db:

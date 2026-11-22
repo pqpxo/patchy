@@ -5,7 +5,7 @@ import { fmtDate, safeUrl } from "../format";
 import { usePrefs } from "../prefs";
 import { AssetTable, FindingTable } from "../tables";
 import {
-  CodeBlock, Copy, DangerButton, DataTable, Empty, Eol, ErrorBox, Exposure, Field, KV, Link, PageHead, Pager, RunBanner, Skeleton, Status,
+  CodeBlock, Copy, DangerButton, DataTable, Empty, Eol, ErrorBox, Exposure, Field, KV, Kev, Link, PageHead, Pager, RunBanner, Sev, Skeleton, Status,
   Tabs, When, errText, fieldErrors, navigate, toast, useLoad, useQueryParam, useSort, type Col,
 } from "../ui";
 import { FixPlan } from "./Fix";
@@ -87,9 +87,22 @@ const DOCKER_ON = [
   `sudo sed -i 's/"docker_images": false/"docker_images": true/' /etc/patchy-agent/config.json`,
 ].join("\n");
 
+const SYFT_ON = "sudo rm -f /usr/local/lib/patchy-agent/syft.declined && cd ~/patchy-agent && sudo sh install.sh";
+
+type ImageSummary = { packages: number; total: number; worst: string | null; kev: boolean };
+
 const longDate = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
-function ContainersCard({ items, docker }: { items: Container[]; docker: boolean }) {
+function ImageFindings({ s }: { s?: ImageSummary }) {
+  if (!s) return <span className="muted" title="No package list for this image yet. Needs Syft on the host; new images are scanned on the next reports.">Not scanned</span>;
+  return <>
+    {s.total ? <span><Sev s={s.worst} /> <span className="num">{s.total}</span> <Kev on={s.kev} /></span>
+      : <span className="badge tone-good">None found</span>}
+    <div className="cell-sub">{s.packages} package{s.packages === 1 ? "" : "s"}</div>
+  </>;
+}
+
+function ContainersCard({ host, items, images, docker }: { host: Host; items: Container[]; images: Record<string, ImageSummary>; docker: boolean }) {
   return (
     <section className="card wide">
       <h2>Containers <span className="num muted">{items.length}</span></h2>
@@ -98,12 +111,13 @@ function ContainersCard({ items, docker }: { items: Container[]; docker: boolean
         <CodeBlock code={DOCKER_ON} />
       </> : <p className="muted">Docker isn't running on this host.</p>) : (
         <div className="table-wrap"><table className="table compact">
-          <thead><tr><th>Name</th><th>Image</th><th>State</th><th>Ports</th><th>Volumes and mounts</th></tr></thead>
+          <thead><tr><th>Name</th><th>Image</th><th>Image vulnerabilities</th><th>State</th><th>Ports</th><th>Volumes and mounts</th></tr></thead>
           <tbody>{items.map((c, i) => (
             <tr key={c.name ?? i}>
               <td><strong>{c.name ?? "unnamed"}</strong>
                 {c.compose_project && <div className="cell-sub">{c.compose_project}{c.compose_service ? ` / ${c.compose_service}` : ""}</div>}</td>
               <td><span className="ver">{c.image}</span>{c.version && <div className="cell-sub">version {c.version}</div>}</td>
+              <td className="nowrap"><ImageFindings s={images[c.image]} /></td>
               <td><span className={`badge ${c.state === "running" ? "tone-good" : "tone-muted"}`}>{c.state ? c.state[0].toUpperCase() + c.state.slice(1) : "Unknown"}</span>
                 {c.status && <div className="cell-sub">{c.status}</div>}</td>
               <td className="num nowrap">{c.ports.length ? c.ports.map((p, j) =>
@@ -118,6 +132,10 @@ function ContainersCard({ items, docker }: { items: Container[]; docker: boolean
           ))}</tbody>
         </table></div>
       )}
+      {items.length > 0 && Object.keys(images).length === 0 && (host.agent_outdated
+        ? <p className="muted small gap-top">To check the packages inside these images, update the agent to 1.3 or later and answer yes when it offers Syft.</p>
+        : <><p className="muted small gap-top">To check the packages inside these images, install Syft for the agent (it downloads a pinned, checksum-verified copy), then press Rescan:</p>
+          <CodeBlock code={SYFT_ON} /></>)}
     </section>
   );
 }
@@ -176,6 +194,8 @@ function AgentHelp() {
       <h3>Docker containers</h3>
       <p>Reading the Docker socket needs the docker group, which is root-equivalent, so it is off unless you allow it at install time. To turn it on later:</p>
       <CodeBlock code={DOCKER_ON} />
+      <p>With containers on, the agent can also list the packages inside each image with Syft, so they are checked for vulnerabilities too. The installer offers it once. To add it later:</p>
+      <CodeBlock code={SYFT_ON} />
       <h3>Rotate or revoke</h3>
       <p><strong>Rotate</strong> issues a new token and stops the old one at once; paste the new token into <code>/etc/patchy-agent/token</code>. <strong>Revoke</strong> stops the agent reporting.</p>
       <h3>Useful commands on the host</h3>
@@ -245,7 +265,7 @@ function AgentPanel({ host, onChange }: { host: Host; onChange: () => void }) {
 }
 
 type HostData = { host: Host; services: { name: string | null; protocol: string | null; listen_ip: string | null; port: number | null }[];
-  paths: { root: string; path: string; is_dir: boolean }[]; runs: ScanRun[]; containers: Container[]; apps: AddedApp[] };
+  paths: { root: string; path: string; is_dir: boolean }[]; runs: ScanRun[]; containers: Container[]; apps: AddedApp[]; images: Record<string, ImageSummary> };
 
 export function HostDetailPage({ id }: { id: number }) {
   const { data, error, reload } = useLoad(() => get<HostData>(`/api/hosts/${id}`), [id],
@@ -321,7 +341,7 @@ export function HostDetailPage({ id }: { id: number }) {
             {units.length === 0 ? <p className="muted">None reported.</p> : <p className="small">{units.map((u) => u.name).join(", ")}</p>}
           </div>
         </section>
-        <ContainersCard items={data.containers} docker={units.some((u) => u.name?.startsWith("docker."))} />
+        <ContainersCard host={h} items={data.containers} images={data.images ?? {}} docker={units.some((u) => u.name?.startsWith("docker."))} />
         <AppsCard host={h} items={data.apps} />
         <section className="card wide">
           <h2>Application directories</h2>
