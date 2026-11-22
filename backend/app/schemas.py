@@ -111,6 +111,7 @@ class PathOut(Out):
 class ComponentOut(Out):
     id: int
     name: str
+    image: str | None = None  # set when the package is inside a container image
     component_type: str
     vendor: str | None
     ecosystem: str | None
@@ -179,6 +180,7 @@ class AdvisoryOut(Out):
 class FindingOut(Out):
     id: int
     component_id: int
+    image: str | None = None
     component_name: str
     component_version: str | None
     component_type: str

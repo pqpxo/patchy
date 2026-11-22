@@ -1,0 +1,75 @@
+"""v1.3: packages inside container images, listed by Syft on the host and matched like any other package."""
+from app.agent_ingest import purl_package
+from app.db import utcnow
+from app.models import Advisory, Component, Finding
+from tests.test_api import _enroll, _report, agent_mod
+
+SYFT_DOC = {"distro": {"id": "alpine", "versionID": "3.20.3"}, "artifacts": [
+    {"type": "deb", "name": "zlib1g", "version": "1:1.2.13.dfsg-1",
+     "metadata": {"package": "zlib1g", "version": "1:1.2.13.dfsg-1", "source": "zlib", "sourceVersion": ""}},
+    {"type": "apk", "name": "libcrypto3", "version": "3.3.2-r0", "metadata": {"originPackage": "openssl"}},
+    {"type": "rpm", "name": "bash", "version": "5.1.8-9.el9"},
+    {"type": "npm", "name": "lodash", "version": "4.17.20", "purl": "pkg:npm/lodash@4.17.20"},
+    {"type": "binary", "name": "busybox", "version": "1.36.1"},  # no purl: nothing to match it against
+    {"type": "python", "name": "nover", "version": "", "purl": "pkg:pypi/nover@"},
+]}
+
+
+def test_syft_json_becomes_a_compact_package_list():
+    pkgs = agent_mod.syft_packages(SYFT_DOC)
+    assert pkgs == [
+        {"type": "deb", "name": "zlib1g", "version": "1:1.2.13.dfsg-1", "source_name": "zlib", "source_version": None},
+        {"type": "apk", "name": "libcrypto3", "version": "3.3.2-r0", "source_name": "openssl"},
+        {"type": "rpm", "name": "bash", "version": "5.1.8-9.el9"},
+        {"type": "npm", "name": "lodash", "version": "4.17.20", "purl": "pkg:npm/lodash@4.17.20"},
+    ]
+
+
+def test_images_are_scanned_once_then_cached(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(agent_mod, "find_syft", lambda: "/opt/syft")
+    monkeypatch.setattr(agent_mod, "syft_scan", lambda exe, image_id: calls.append(image_id) or
+                        {"distro": {"id": "debian", "version_id": "12"}, "packages": []})
+    containers = [{"image": "nginx:1.27", "image_id": "sha256:aa"}, {"image": "nginx:1.27", "image_id": "sha256:aa"},
+                  {"image": "redis:7", "image_id": "sha256:bb"}, {"image": "old", "image_id": None}]
+    errors = []
+    out = agent_mod.image_packages(containers, errors, state_dir=str(tmp_path))
+    assert [i["image"] for i in out] == ["nginx:1.27", "redis:7"] and calls == ["sha256:aa", "sha256:bb"]
+    assert agent_mod.image_packages(containers, errors, state_dir=str(tmp_path)) == out and len(calls) == 2
+    monkeypatch.setattr(agent_mod, "MAX_NEW_IMAGE_SCANS", 1)
+    more = containers + [{"image": "a:1", "image_id": "sha256:cc"}, {"image": "b:1", "image_id": "sha256:dd"}]
+    assert len(agent_mod.image_packages(more, errors, state_dir=str(tmp_path))) == 3
+    assert errors == ["syft: 1 image(s) left for the next report"]
+    monkeypatch.setattr(agent_mod, "find_syft", lambda: None)
+    assert agent_mod.image_packages(more, [], state_dir=str(tmp_path)) == []
+
+
+def test_purls_map_to_osv_names():
+    assert purl_package("pkg:npm/%40babel/core@7.24.0") == ("npm", "@babel/core", "7.24.0")
+    assert purl_package("pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1?type=jar") == \
+        ("Maven", "org.apache.logging.log4j:log4j-core", "2.14.1")
+    assert purl_package("pkg:golang/golang.org/x/net@v0.17.0") == ("Go", "golang.org/x/net", "v0.17.0")
+    assert purl_package("pkg:generic/busybox@1.36") is None and purl_package(None) is None
+
+
+def test_image_packages_get_findings_per_image_and_pull_advice(auth_client, client, host, db):
+    token = _enroll(auth_client, host.id)
+    r = client.post("/api/agent/report", json=_report(), headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    in_image = {c.name: c for c in db.query(Component).filter_by(host_id=host.id)
+                if (c.details or {}).get("image") == "nginx:1.27"}
+    zlib, lodash = in_image["zlib"], in_image["lodash"]
+    assert (zlib.component_type, zlib.ecosystem, zlib.version) == ("os_package", "Debian:12", "1:1.2.13.dfsg-1")
+    assert zlib.details["binaries"] == ["zlib1g"] and zlib.details["containers"] == ["sample-web"]
+    assert (lodash.component_type, lodash.ecosystem, lodash.version) == ("library", "npm", "4.17.20")
+
+    db.add(Advisory(id="GHSA-img", severity="high", kev=True, affected=[]))
+    db.add(Finding(component_id=lodash.id, advisory_id="GHSA-img", match_status="confirmed", evidence="e",
+                   remediation="r", fixed_versions=["4.17.21"], currently_matching=True, first_detected_at=utcnow()))
+    db.commit()
+    d = auth_client.get(f"/api/hosts/{host.id}").json()
+    assert d["images"] == {"nginx:1.27": {"packages": 2, "total": 1, "worst": "high", "kev": True}}
+    plan = auth_client.get("/api/fix-plan", params={"host_id": host.id}).json()
+    g = next(g for g in plan["groups"] if g["kind"] == "image")
+    assert g["command"] == "docker pull nginx:1.27" and g["title"].endswith("container image nginx:1.27")
+    assert [f["image"] for f in auth_client.get("/api/findings").json()["items"]] == ["nginx:1.27"]

@@ -70,7 +70,8 @@ def component_out(c: Component, stats: dict, stale: bool, cls=ComponentOut, **ex
         **{k: getattr(c, k) for k in ComponentOut.model_fields if hasattr(c, k)},
         "host_name": c.host.name if c.host else None, "host_ip": c.host.ip if c.host else None,
         "repository_label": repo_label(c.repository), "repository_url": c.repository.url if c.repository else None,
-        "check_state": check_state(c, n, stale), "open_findings": n, "max_severity": worst, **extra,
+        "check_state": check_state(c, n, stale), "open_findings": n, "max_severity": worst,
+        "image": (c.details or {}).get("image"), **extra,
     })
 
 
@@ -81,5 +82,5 @@ def finding_out(f: Finding) -> FindingOut:
         "component_name": c.name, "component_version": c.version, "component_type": c.component_type,
         "ecosystem": c.ecosystem, "host_id": c.host_id, "host_name": c.host.name if c.host else None,
         "repository_id": c.repository_id, "repository_label": repo_label(c.repository),
-        "advisory": AdvisoryOut.model_validate(f.advisory),
+        "image": (c.details or {}).get("image"), "advisory": AdvisoryOut.model_validate(f.advisory),
     })

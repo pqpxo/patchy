@@ -54,7 +54,7 @@ export interface Asset {
   id: number; name: string; component_type: string; vendor: string | null; ecosystem: string | null;
   version: string | null; version_status: string; version_spec: string | null; source_package: string | null;
   source: string; detection: string; host_id: number | null; host_name: string | null; host_ip: string | null;
-  repository_id: number | null; repository_label: string | null; repository_url: string | null;
+  repository_id: number | null; repository_label: string | null; repository_url: string | null; image?: string | null;
   listen_ip: string | null; port: number | null; protocol: string | null; install_path: string | null;
   notes: string | null; details: Record<string, unknown> | null; missing_since: string | null;
   last_scanned_at: string | null; vuln_checked_at: string | null; created_at: string; updated_at: string;
@@ -80,7 +80,7 @@ export interface Advisory {
 export interface Finding {
   id: number; component_id: number; component_name: string; component_version: string | null;
   component_type: string; ecosystem: string | null; host_id: number | null; host_name: string | null;
-  repository_id: number | null; repository_label: string | null; advisory: Advisory; match_status: string;
+  repository_id: number | null; repository_label: string | null; image?: string | null; advisory: Advisory; match_status: string;
   evidence: string; affected_ranges: string[]; fixed_versions: string[]; remediation: string;
   currently_matching: boolean; status: string; status_note: string | null; status_changed_at: string;
   status_changed_by: string; first_detected_at: string; last_checked_at: string;
