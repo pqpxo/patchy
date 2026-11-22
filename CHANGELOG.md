@@ -2,6 +2,11 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.3.5 - 2026-11-22
+
+### Fixed
+- The Rescan banner said any agent older than the server's "only reports on its 6-hour schedule". Only agents before 1.2 lack the 5-minute check-in; newer ones now get the "waiting for the agent" message.
+
 ## 1.3.4 - 2026-11-22
 
 ### Fixed
