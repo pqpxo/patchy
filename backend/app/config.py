@@ -49,7 +49,7 @@ class Settings:
         self.repo_max_manifests = _int("REPO_MAX_MANIFESTS", 300)
         self.repo_scan_timeout = _int("REPO_SCAN_TIMEOUT_SECONDS", 180)
         # Agent
-        self.agent_max_report_bytes = _int("AGENT_MAX_REPORT_BYTES", 10 * 1024 * 1024)
+        self.agent_max_report_bytes = _int("AGENT_MAX_REPORT_BYTES", 32 * 1024 * 1024)
 
 
 settings = Settings()

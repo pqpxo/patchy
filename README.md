@@ -31,7 +31,7 @@ Self-hosted software inventory and vulnerability tracker for a home lab. Registe
 
 - **Inventory**: languages, libraries, web servers, databases, OS packages, container images and other software, with versions, hosts, IPs, ports, paths, repositories and notes. Search, filter, edit and delete.
 - **GitHub discovery**: reads manifests and lockfiles through the GitHub API. Nothing is cloned, built or executed.
-- **Linux agent**: one read-only Python script on a systemd timer. It sends reports outbound over HTTPS using a revocable per-host token, lists Docker containers and software added to the base OS, and can be asked to rescan from the host page.
+- **Linux agent**: one read-only Python script on a systemd timer. It sends reports outbound over HTTPS using a revocable per-host token, lists Docker containers and software added to the base OS, can scan the packages inside container images, and can be asked to rescan from the host page.
 - **Vulnerabilities**: OSV matching with evidence, NVD product (CPE) matching for servers and runtimes, CISA KEV flags, FIRST EPSS exploit likelihood, NVD scores, fixed versions and remediation taken from the advisory.
 - **End of life**: support dates from endoflife.date for runtimes, frameworks, servers and host operating systems.
 - **Fixes**: open findings grouped into the fewest upgrade steps per host, repository and manifest, with a copy-paste command where it's safe to give one.
@@ -100,6 +100,7 @@ All settings are environment variables in `.env`. See [.env.example](.env.exampl
 | `FEED_REFRESH_HOURS` | `24` | Default schedule for every source (end-of-life defaults to weekly). `0` = manual only. Settings overrides it per source |
 | `FEED_STALE_HOURS` | `72` | After this, results are flagged stale |
 | `OSV_MAX_*`, `NVD_MAX_PER_REFRESH` | see example | Hard caps on requests per refresh |
+| `AGENT_MAX_REPORT_BYTES` | `33554432` (32 MB) | Largest agent report accepted. Image package lists make reports bigger |
 | `REPO_MAX_FILE_BYTES` / `REPO_MAX_TOTAL_BYTES` / `REPO_MAX_MANIFESTS` / `REPO_SCAN_TIMEOUT_SECONDS` | 5 MB / 50 MB / 300 / 180 | Repository scan limits |
 | `ENABLE_API_DOCS` | `false` | Swagger UI at `/api/docs` (loads from a CDN) |
 
@@ -191,6 +192,7 @@ The installer prompts for the token (input hidden, kept out of shell history), w
 | Running services | `systemctl list-units --state=running` | `collect.services` |
 | Versions of common software | fixed allowlist (`nginx -v`, `python3 --version`, `openssl version`...) | `collect.version_probes` |
 | Docker containers: name, image, state, ports, mount locations | Docker API socket (needs the docker group, see below). Never env or labels | `collect.docker_images` (off) |
+| Packages inside container images | Syft, if installed (see below), reading local images through the Docker socket | `collect.image_packages` (with containers) |
 | File and folder **names** under chosen app directories | `os.scandir`, no symlink following, depth and count limits | `app_dirs` (empty) |
 
 It never reads file contents, environment variables, keys, passwords, tokens or shell history. Sensitive names (`.ssh`, `.env`, `*.key`, `*.pem`, `id_*`, `shadow`, `.git`, ...) are skipped by the agent and dropped again by the server. Broad roots such as `/`, `/home`, `/etc` and `/var` are refused. Commands run from a fixed allowlist as argument lists, with no shell, a clean environment, a timeout and capped output.
@@ -205,6 +207,9 @@ It never reads file contents, environment variables, keys, passwords, tokens or 
 - Outbound HTTPS to your portal only. Redirects are refused so the token can't be forwarded elsewhere. For a self-signed certificate set `ca_file`. For a trusted LAN without TLS set `"allow_insecure_http": true`.
 - To list an app directory under `/home`, add a drop-in: `sudo systemctl edit patchy-agent` with `[Service]` and `ProtectHome=read-only`.
 - Containers need the docker group, which is equivalent to root, so only enable it if you accept that. The installer asks on a fresh install. To turn it on later, run `sudo usermod -aG docker patchy-agent`, then set `"docker_images": true` in `/etc/patchy-agent/config.json`.
+- **Container image scanning** uses [Syft](https://github.com/anchore/syft) (Apache-2.0, by Anchore). When containers are on, the installer asks once whether to download Syft 1.56.0 (about 25 MB) from its GitHub release. It checks the file against a SHA-256 pinned in `install.sh` and refuses it on a mismatch, and re-running the installer keeps it on that version. Syft only reads images already on the host, never pulls, and runs with update checks off.
+- Each image is scanned once and cached by image ID in `/var/lib/patchy-agent`, so later reports cost nothing until an image changes. A scan needs temporary disk space in `/var/tmp` about the size of the image, and on a Raspberry Pi a large image can take a few minutes. At most 10 new images are scanned per run; the rest follow in the next reports. To turn it off, set `"image_packages": false`.
+- To add Syft after saying no, run `sudo rm -f /usr/local/lib/patchy-agent/syft.declined`, then re-run `sudo sh install.sh` in the agent folder.
 - Because it runs unprivileged, it can't see the processes behind other users' sockets, and those show as "unknown". That is deliberate.
 
 ### Rotate, upgrade, remove
@@ -267,6 +272,7 @@ Each host and repository has a **Fixes** tab, and **Fixes** in the sidebar cover
 - Findings are grouped by host and package manager, or by repository manifest. Each group is one upgrade step, ordered known-exploited first, then by severity.
 - The target version is the smallest release that fixes every advisory with a published fix.
 - Steps include a copy-paste command (`apt`, `apk`, `dnf`, `npm`/`yarn`/`pnpm`, `pip`, `go get`, `cargo`, `composer`, `bundle`) only when every package name and version passes a strict character check. Names from scanned repositories are untrusted, so anything unusual is listed but left out of the command.
+- Packages inside a container image are grouped per image. Updating them on the host does nothing, so the step is `docker pull` for the image, then recreating its containers.
 - Findings with no published fix, and components or host OSes that are out of support (or leave support within 90 days), are listed separately with upgrade advice.
 
 > [!IMPORTANT]
@@ -340,13 +346,15 @@ Restore into a fresh stack with `gunzip -c file.sql.gz | docker compose exec -T 
 | Agent: "refusing plain http" | Use HTTPS or set `allow_insecure_http` |
 | Agent: OS packages show "No vuln source" | This distro has no OSV mapping in Patchy (see limitations) |
 | Audit log shows the proxy's IP | Set `FORWARDED_ALLOW_IPS` |
+| Settings, Sources: "The worker is running ..." | An old worker container survived an update. Run `docker compose up -d --force-recreate worker` |
+| Containers show "Not scanned" | Syft isn't installed or the image hasn't been reached yet. See the agent's container image scanning notes |
 
 <br>
 
 ## Known limitations
 
 - Version comparison is done locally only for PyPI, npm, Go, crates.io, Debian and Ubuntu. Maven, Packagist, RubyGems, Alpine, Rocky and Alma rely on OSV's server-side version match. NuGet has no parser yet.
-- Container images and web-server configs get end-of-life tracking only. Patchy doesn't scan image layers.
+- Container image scanning sees what Syft sees: packages from distro databases and language manifests. Static binaries with no package metadata, and images not used by a container, aren't checked. Web-server configs get end-of-life tracking only.
 - "Added software" is a heuristic. Some OS packages marked as manually installed by the image builder can still show, especially on Raspberry Pi OS, which keeps no installer package list. Added apt packages are vulnerability-checked as OS packages, so third-party ones such as Plex usually have no advisories in OSV.
 - NVD product matching only knows products with a curated or endoflife.date CPE, or one you set on a manual asset. Its results are possible matches, not confirmed.
 - Without a lockfile, npm/PyPI/Cargo/Composer dependencies are constraints, shown as version unknown.

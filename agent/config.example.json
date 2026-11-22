@@ -10,6 +10,7 @@
     "listening_ports": true,
     "services": true,
     "docker_images": false,
+    "image_packages": true,
     "version_probes": ["nginx", "apache2", "httpd", "caddy", "python3", "node", "openssl", "openssh", "docker"]
   },
   "app_dirs": []

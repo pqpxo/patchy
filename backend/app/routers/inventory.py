@@ -6,6 +6,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .. import matching as m
 from .. import repo_scanner, vulns
 from ..db import get_db, utcnow
 from ..models import (Advisory, Agent, Component, ComponentObservation, ComponentPath, Finding, Host, HostPath,
@@ -258,7 +259,28 @@ def get_host(host_id: int, db: Session = Depends(get_db), _: User = Depends(requ
             "services": [ServiceOut.model_validate(s) for s in services],
             "paths": [HostPathOut.model_validate(p) for p in paths],
             "runs": [ScanRunOut.model_validate(r) for r in runs],
-            "containers": h.containers or [], "apps": h.apps or []}
+            "containers": h.containers or [], "apps": h.apps or [], "images": _image_summary(db, h.id)}
+
+
+def _image_summary(db: Session, host_id: int) -> dict[str, dict]:
+    """{image: {packages, total, worst, kev}} for container images whose packages were scanned."""
+    in_images = (Component.host_id == host_id, Component.missing_since.is_(None),
+                 Component.dedupe_key.like(f"host:{host_id}|image|%"))
+    out: dict[str, dict] = {}
+    for d in db.scalars(select(Component.details).where(*in_images)):
+        if (d or {}).get("image"):
+            out.setdefault(d["image"], {"packages": 0, "total": 0, "worst": None, "kev": False})["packages"] += 1
+    rows = db.execute(select(Component.details, Advisory.severity, Advisory.kev)
+                      .join(Finding, Finding.component_id == Component.id).join(Advisory, Advisory.id == Finding.advisory_id)
+                      .where(*in_images, Finding.status.in_(OPEN), Finding.currently_matching.is_(True)))
+    for d, sev, kev in rows:
+        s = out.get((d or {}).get("image"))
+        if s:
+            s["total"] += 1
+            s["kev"] = s["kev"] or bool(kev)
+            if m.SEVERITY_ORDER.get(sev, 0) > m.SEVERITY_ORDER.get(s["worst"], -1):
+                s["worst"] = sev
+    return out
 
 
 @router.post("/hosts/{host_id}/rescan", response_model=HostOut)

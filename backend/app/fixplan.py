@@ -60,6 +60,9 @@ def _manifest(c: Component) -> str | None:
 def _group(c: Component) -> tuple[tuple, str, str]:
     """(group key, title, kind) for a component."""
     base = m.ecosystem_base(c.ecosystem or "")
+    image = (c.details or {}).get("image")
+    if image and c.host_id:
+        return ("image", c.host_id, image), f"{c.host.name}: container image {image}", "image"
     if base in DISTRO_CMDS:
         host = c.host.name if c.host else "host"
         return ("distro", c.host_id, base), f"{host}: {base} packages", DISTRO_CMDS[base][0]
@@ -108,6 +111,16 @@ def _command(kind: str, base: str, path: str | None, items: list[dict]) -> tuple
     return None, notes
 
 
+def _image_command(image: str) -> tuple[str | None, list[str]]:
+    notes = ["These packages are inside the container image, so upgrading them on the host does nothing. Pull a newer "
+             "image and recreate its containers (for a compose stack: docker compose pull, then docker compose up -d, in "
+             "its folder). If the newest image still has them, the fix has to come from the image's maintainer, or rebuild "
+             "your own image on an updated base."]
+    if image.startswith("sha256:") or not safe(image):
+        return None, notes
+    return f"docker pull {image}", notes
+
+
 def build(db: Session, host_id: int | None = None, repository_id: int | None = None) -> dict:
     q = (select(Finding).join(Component).join(Advisory)
          .where(Finding.status.in_(OPEN), Finding.currently_matching.is_(True), Component.missing_since.is_(None),
@@ -141,7 +154,8 @@ def build(db: Session, host_id: int | None = None, repository_id: int | None = N
         if target:
             g = groups.setdefault(key, {"title": title, "kind": kind, "base": m.ecosystem_base(c.ecosystem or ""),
                                         "path": _manifest(c) if c.repository_id else None,
-                                        "host_id": c.host_id, "repository_id": c.repository_id, "items": []})
+                                        "host_id": c.host_id, "repository_id": c.repository_id, "items": [],
+                                        "image": (c.details or {}).get("image") if kind == "image" else None})
             g["items"].append(item)
         if unfixed:
             no_fix.append({**item, "target": None, "findings": len(unfixed)})
@@ -149,7 +163,8 @@ def build(db: Session, host_id: int | None = None, repository_id: int | None = N
     out_groups = []
     for g in groups.values():
         g["items"].sort(key=lambda i: (not i["kev"], -SEV.get(i["worst"], 0), i["name"].lower()))
-        g["command"], g["notes"] = _command(g["kind"], g["base"], g["path"], g["items"])
+        g["command"], g["notes"] = (_image_command(g["image"]) if g["kind"] == "image"
+                                    else _command(g["kind"], g["base"], g["path"], g["items"]))
         g["worst"] = g["items"][0]["worst"]
         g["kev"] = any(i["kev"] for i in g["items"])
         out_groups.append(g)
