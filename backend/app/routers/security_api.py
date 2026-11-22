@@ -266,14 +266,16 @@ def agent_ping(request: Request, db: Session = Depends(get_db)) -> dict:
 
 @agent_router.get("/poll")
 def agent_poll(request: Request, db: Session = Depends(get_db)) -> dict:
-    """Agents 1.2+ ask every few minutes whether someone pressed Rescan. It only ever triggers a normal report."""
+    """Agents 1.2+ ask every few minutes whether someone pressed Rescan (or, from 1.4, Scan on a container).
+    It only ever triggers a normal report; scan_images can only name images the agent itself reported."""
     ip = client_ip(request)
     limiter.check(f"agent:{ip}", 60, 60)
     agent = authenticate_agent(db, request)
     agent.last_seen_at, agent.last_ip = utcnow(), ip
-    want = agent.host.rescan_requested_at is not None
+    images = agent.host.image_scan_requests or []
+    want = agent.host.rescan_requested_at is not None or bool(images)
     db.commit()
-    return {"report": want}
+    return {"report": want, "scan_images": images}
 
 
 @agent_router.post("/report")

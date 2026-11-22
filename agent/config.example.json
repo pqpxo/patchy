@@ -11,6 +11,7 @@
     "services": true,
     "docker_images": false,
     "image_packages": true,
+    "image_scan": "manual",
     "version_probes": ["nginx", "apache2", "httpd", "caddy", "python3", "node", "openssl", "openssh", "docker"]
   },
   "app_dirs": []
