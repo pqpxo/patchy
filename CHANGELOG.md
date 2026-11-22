@@ -2,6 +2,11 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.3.4 - 2026-11-22
+
+### Fixed
+- Agent 1.3.3 collects one report at a time. Pressing Rescan while the 6-hour run is still scanning container images no longer starts a second scan alongside it; the run already going answers the Rescan.
+
 ## 1.3.3 - 2026-11-22
 
 ### Fixed

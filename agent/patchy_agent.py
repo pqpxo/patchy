@@ -48,7 +48,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-VERSION = "1.3.2"
+VERSION = "1.3.3"
 DEFAULT_CONFIG = "/etc/patchy-agent/config.json"
 SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_OUTPUT = 64 * 1024
@@ -325,6 +325,24 @@ IMAGE_CACHE_FORMAT = 1  # bump when syft_packages output changes, so cached list
 # New scans start only within this many seconds of the first. With Syft's own 900 s limit the run stays
 # inside systemd's 1800 s TimeoutStartSec, so a report always goes out; the rest follow on the next runs.
 IMAGE_SCAN_SECONDS = 600
+
+
+def run_lock(state_dir=STATE_DIR):
+    """Held while a report is collected, so the 6-hour run and a Rescan never scan images side by side.
+
+    Returns the lock (keep it until exit), False when another run holds it, or None when there is
+    nowhere to keep one (a manual run without the systemd state directory), in which case go ahead."""
+    try:
+        import fcntl
+        fd = os.open(os.path.join(state_dir, "run.lock"), os.O_RDONLY | os.O_CREAT, 0o644)
+    except (ImportError, OSError):
+        return None
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return False
+    return fd
 
 
 def find_syft():
@@ -678,6 +696,10 @@ def main(argv=None):
         code, body = request(cfg, "GET", "/api/agent/poll")
         if code != 200 or not body.get("report"):  # nothing wanted, or a server too old to ask
             return 0
+    lock = None if a.sample else run_lock()  # released when the process exits
+    if lock is False:
+        print("Another report is already being collected; it will cover this one, so this run stops.", file=sys.stderr)
+        return 0
     report = sample_report() if a.sample else collect(cfg)
     if a.dry_run:
         print(json.dumps(report, indent=2))
