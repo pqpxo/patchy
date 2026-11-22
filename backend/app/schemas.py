@@ -333,6 +333,13 @@ class AuditOut(Out):
     ip: str | None
 
 
+class AlertsIn(In):
+    kev: bool | None = None
+    critical: bool | None = None
+    eol: bool | None = None
+    silent_hours: Literal[0, 6, 12, 24, 48, 72] | None = None
+
+
 class SourceIn(In):
     enabled: bool | None = None
     hours: int | None = None

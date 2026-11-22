@@ -2,6 +2,12 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.5.0 - 2026-11-22
+
+### Added
+- Alerts. Patchy sends one message to a webhook (eg Home Assistant), ntfy or email when a known exploited or critical vulnerability is found, a host stops reporting, or software nears end of life. Destinations go in `.env` (see `.env.example`); choose events and send a test from **Settings > Alerts**. Each thing alerts once, and the first check doesn't replay what's already there.
+- Database migration 0005 adds a table recording what has been alerted. Nothing is changed or dropped.
+
 ## 1.4.0 - 2026-11-22
 
 ### Changed
