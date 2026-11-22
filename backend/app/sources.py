@@ -77,6 +77,7 @@ def due(db: Session) -> list[str]:
         if not s["enabled"] or not s["hours"]:
             continue
         f = db.get(FeedStatus, key)
-        if not f or not f.last_attempt_at or f.last_attempt_at < now - timedelta(hours=s["hours"]):
+        hours = min(1, s["hours"]) if f and f.last_error else s["hours"]  # a failed source retries hourly
+        if not f or not f.last_attempt_at or f.last_attempt_at < now - timedelta(hours=hours):
             out.append(key)
     return [k for k in ORDER if k in out]

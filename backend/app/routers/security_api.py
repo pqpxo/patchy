@@ -262,6 +262,18 @@ def agent_ping(request: Request, db: Session = Depends(get_db)) -> dict:
     return {"ok": True, "host": agent.host.name}
 
 
+@agent_router.get("/poll")
+def agent_poll(request: Request, db: Session = Depends(get_db)) -> dict:
+    """Agents 1.2+ ask every few minutes whether someone pressed Rescan. It only ever triggers a normal report."""
+    ip = client_ip(request)
+    limiter.check(f"agent:{ip}", 60, 60)
+    agent = authenticate_agent(db, request)
+    agent.last_seen_at, agent.last_ip = utcnow(), ip
+    want = agent.host.rescan_requested_at is not None
+    db.commit()
+    return {"report": want}
+
+
 @agent_router.post("/report")
 async def agent_report(request: Request, db: Session = Depends(get_db)) -> dict:
     ip = client_ip(request)

@@ -1,11 +1,11 @@
 import { useRef, useState } from "react";
-import { del, get, post, type Agent, type Asset, type Finding, type Host, type Page, type ScanRun } from "../api";
+import { del, get, post, type AddedApp, type Agent, type Asset, type Container, type Finding, type Host, type Page, type ScanRun } from "../api";
 import { Icon } from "../icons";
 import { fmtDate, safeUrl } from "../format";
 import { usePrefs } from "../prefs";
 import { AssetTable, FindingTable } from "../tables";
 import {
-  CodeBlock, Copy, DangerButton, DataTable, Empty, Eol, ErrorBox, Exposure, Field, KV, Link, PageHead, Pager, Skeleton, Status,
+  CodeBlock, Copy, DangerButton, DataTable, Empty, Eol, ErrorBox, Exposure, Field, KV, Link, PageHead, Pager, RunBanner, Skeleton, Status,
   Tabs, When, errText, fieldErrors, navigate, toast, useLoad, useQueryParam, useSort, type Col,
 } from "../ui";
 import { FixPlan } from "./Fix";
@@ -82,6 +82,67 @@ function AgentBadge({ a, outdated }: { a: Agent | null; outdated?: boolean }) {
   return <><span className="badge tone-good">Active</span>{outdated && <span className="badge tone-warn" title="Older than the agent bundled with this server. See the update command on the host page.">Update</span>}</>;
 }
 
+const DOCKER_ON = [
+  "sudo usermod -aG docker patchy-agent",
+  `sudo sed -i 's/"docker_images": false/"docker_images": true/' /etc/patchy-agent/config.json`,
+].join("\n");
+
+const longDate = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+function ContainersCard({ items, docker }: { items: Container[]; docker: boolean }) {
+  return (
+    <section className="card wide">
+      <h2>Containers <span className="num muted">{items.length}</span></h2>
+      {items.length === 0 ? (docker ? <>
+        <p className="muted">None reported. To list containers, give the agent Docker access on the host (root-equivalent), then press Rescan:</p>
+        <CodeBlock code={DOCKER_ON} />
+      </> : <p className="muted">Docker isn't running on this host.</p>) : (
+        <div className="table-wrap"><table className="table compact">
+          <thead><tr><th>Name</th><th>Image</th><th>State</th><th>Ports</th><th>Volumes and mounts</th></tr></thead>
+          <tbody>{items.map((c, i) => (
+            <tr key={c.name ?? i}>
+              <td><strong>{c.name ?? "unnamed"}</strong>
+                {c.compose_project && <div className="cell-sub">{c.compose_project}{c.compose_service ? ` / ${c.compose_service}` : ""}</div>}</td>
+              <td><span className="ver">{c.image}</span>{c.version && <div className="cell-sub">version {c.version}</div>}</td>
+              <td><span className={`badge ${c.state === "running" ? "tone-good" : "tone-muted"}`}>{c.state ? c.state[0].toUpperCase() + c.state.slice(1) : "Unknown"}</span>
+                {c.status && <div className="cell-sub">{c.status}</div>}</td>
+              <td className="num nowrap">{c.ports.length ? c.ports.map((p, j) =>
+                <div key={j}>{p.public ? <>{p.public} <span className="muted">→</span> {p.private}</> : p.private}<span className="muted">/{p.type}</span></div>)
+                : <span className="muted">none</span>}</td>
+              <td>{c.mounts.length ? <ul className="mounts">{c.mounts.map((m, j) => (
+                <li key={j}>{m.type === "volume" && m.name && <span className="muted">{m.name.length > 24 ? "volume" : m.name}: </span>}
+                  <code>{m.source ?? "hidden"}</code> <span className="muted">→</span> <code>{m.destination}</code>
+                  {!m.rw && <span className="badge tone-muted">Read-only</span>}</li>
+              ))}</ul> : <span className="muted">none</span>}</td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      )}
+    </section>
+  );
+}
+
+function AppsCard({ host, items }: { host: Host; items: AddedApp[] }) {
+  return (
+    <section className="card wide">
+      <h2>Added software <span className="num muted">{items.length}</span></h2>
+      <p className="muted small">Installed on top of the base OS: packages someone chose to install, plus Snap and Flatpak apps. Base system packages are left out.</p>
+      {items.length === 0 ? <p className="muted">{!host.agent || host.agent_outdated ? "Needs agent 1.2 or later." : "None found."}</p> : (
+        <div className="scroll-box"><table className="table compact">
+          <thead><tr><th>Name</th><th>Version</th><th>Installed with</th></tr></thead>
+          <tbody>{items.map((a) => (
+            <tr key={`${a.manager}:${a.name}`}>
+              <td><Link to={`/assets?host_id=${host.id}&q=${encodeURIComponent(a.name)}`}>{a.name}</Link></td>
+              <td className="ver">{a.version ?? <span className="muted">-</span>}</td>
+              <td>{a.manager === "dpkg" ? "apt" : a.manager[0].toUpperCase() + a.manager.slice(1)}</td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      )}
+    </section>
+  );
+}
+
 function AgentHelp() {
   const ref = useRef<HTMLDialogElement>(null);
   return <>
@@ -95,7 +156,8 @@ function AgentHelp() {
         <li>Installed OS packages, which Patchy checks against OSV.</li>
         <li>Listening ports and running services.</li>
         <li>Versions of common servers and runtimes, such as nginx, OpenSSH, OpenSSL, Python and Node.js.</li>
-        <li>Optional: Docker images, and dependency manifests in folders listed under <code>app_dirs</code>.</li>
+        <li>Software added to the base OS: packages someone chose to install, plus Snap and Flatpak apps.</li>
+        <li>Optional: Docker containers (name, image, state, ports and mount locations), and file names in folders listed under <code>app_dirs</code>.</li>
       </ul>
       <h3>How it stays safe</h3>
       <ul>
@@ -109,6 +171,11 @@ function AgentHelp() {
         <li><strong>Update</strong>: this server bundles a newer agent. Run the update command shown on this card.</li>
         <li><strong>Revoked</strong>: reports are rejected. Re-enrol to issue a new token.</li>
       </ul>
+      <h3>Rescan</h3>
+      <p><strong>Rescan</strong> re-checks this host's inventory against the latest vulnerability data straight away. Agents from 1.2 also check in every 5 minutes and send a fresh report when a rescan is waiting.</p>
+      <h3>Docker containers</h3>
+      <p>Reading the Docker socket needs the docker group, which is root-equivalent, so it is off unless you allow it at install time. To turn it on later:</p>
+      <CodeBlock code={DOCKER_ON} />
       <h3>Rotate or revoke</h3>
       <p><strong>Rotate</strong> issues a new token and stops the old one at once; paste the new token into <code>/etc/patchy-agent/token</code>. <strong>Revoke</strong> stops the agent reporting.</p>
       <h3>Useful commands on the host</h3>
@@ -178,10 +245,11 @@ function AgentPanel({ host, onChange }: { host: Host; onChange: () => void }) {
 }
 
 type HostData = { host: Host; services: { name: string | null; protocol: string | null; listen_ip: string | null; port: number | null }[];
-  paths: { root: string; path: string; is_dir: boolean }[]; runs: ScanRun[] };
+  paths: { root: string; path: string; is_dir: boolean }[]; runs: ScanRun[]; containers: Container[]; apps: AddedApp[] };
 
 export function HostDetailPage({ id }: { id: number }) {
-  const { data, error, reload } = useLoad(() => get<HostData>(`/api/hosts/${id}`), [id]);
+  const { data, error, reload } = useLoad(() => get<HostData>(`/api/hosts/${id}`), [id],
+    (d) => (d?.host.rescan_requested_at ? 5000 : null));
   const [tab, setTab] = useQueryParam("tab");
   const t = tab || "overview";
   const aSort = useSort("name", "asc", true);
@@ -196,14 +264,34 @@ export function HostDetailPage({ id }: { id: number }) {
   const ports = data.services.filter((s) => s.port !== null);
   const units = data.services.filter((s) => s.port === null);
   const eolLink = safeUrl(h.os_eol?.link);
+  const eolDate = typeof h.os_eol?.eol_from === "string" ? h.os_eol.eol_from : null;
+  const canRescan = !!h.agent && !h.agent.revoked_at;
+  const rescan = async () => {
+    try {
+      await post(`/api/hosts/${h.id}/rescan`);
+      toast(h.agent_outdated ? "Findings re-checked. Update the agent so it can send a fresh report on request."
+        : "Rescan requested. Findings re-checked; the agent sends a fresh report within 5 minutes.");
+      reload();
+    } catch (e) { toast(errText(e), "bad"); }
+  };
   return (
     <>
       <PageHead title={h.name} crumbs={[["Hosts", "/hosts"]]}
         sub={<>{h.os_name ?? "OS unknown until an agent reports"}{h.ip && <> · <span className="num">{h.ip}</span></>}</>}
         meta={<><Exposure e={h.exposure} size="wide" /><Eol s={h.os_eol_state} info={h.os_eol} /><AgentBadge a={h.agent} outdated={h.agent_outdated} />
           <span className="small muted">reported <When iso={h.last_report_at} /></span></>}
-        actions={<DangerButton question={`Delete host ${h.name} and all its assets and findings?`}
-          onConfirm={async () => { await del(`/api/hosts/${h.id}`); toast("Host deleted."); navigate("/hosts"); }}>Delete host</DangerButton>} />
+        actions={<>
+          {canRescan && <button className="btn" onClick={rescan} disabled={!!h.rescan_requested_at}
+            title="Re-check findings now and ask the agent for a fresh report"><Icon name="refresh" size={14} /> Rescan</button>}
+          <DangerButton question={`Delete host ${h.name} and all its assets and findings?`}
+            onConfirm={async () => { await del(`/api/hosts/${h.id}`); toast("Host deleted."); navigate("/hosts"); }}>Delete host</DangerButton>
+        </>} />
+      {h.rescan_requested_at ? (
+        <div className="alert info run" role="status" aria-live="polite"><span className="spin" aria-hidden="true" />
+          <span className="grow">Rescan requested <When iso={h.rescan_requested_at} />. {h.agent_outdated
+            ? <>This agent version only reports on its 6-hour schedule. Update it from the Agent card, or run <code>sudo systemctl start patchy-agent</code> on the host.</>
+            : "Waiting for the agent, which checks in every 5 minutes."}</span></div>
+      ) : <RunBanner run={data.runs[0]} what="Report" />}
       {h.is_demo && <div className="alert warn">DEMO host with fictional data.</div>}
       <Tabs value={t} onChange={setTab} tabs={[
         ["overview", "Overview"], ["assets", <>Assets <span className="num">{h.component_count}</span></>],
@@ -214,8 +302,10 @@ export function HostDetailPage({ id }: { id: number }) {
           <h2>Host</h2>
           <KV rows={[["IP", h.ip], ["Reported hostname", h.reported_hostname], ["OS version", h.os_version], ["Kernel", h.kernel],
             ["Architecture", h.arch], ["Last report", <When iso={h.last_report_at} />],
-            ["OS support", h.os_eol ? <><Eol s={h.os_eol_state} info={h.os_eol} quiet={false} /> {h.os_eol.eol_from && <span className="small muted">ends {h.os_eol.eol_from}</span>}
-              {eolLink && <> <a className="small" href={eolLink} target="_blank" rel="noopener noreferrer">dates</a></>}</> : null]]} />
+            ["OS support", h.os_eol ? <span className="eol-line"><Eol s={h.os_eol_state} info={h.os_eol} quiet={false} />
+              {eolDate && <span className="muted">{h.os_eol_state === "eol" ? "ended" : "until"} {longDate(eolDate)}</span>}
+              {eolLink && <a href={eolLink} target="_blank" rel="noopener noreferrer" title="Support dates on endoflife.date"
+                aria-label="Support dates on endoflife.date"><Icon name="external" size={13} /></a>}</span> : null]]} />
           {h.notes && <p className="pre">{h.notes}</p>}
         </section>
         <AgentPanel host={h} onChange={reload} />
@@ -231,6 +321,8 @@ export function HostDetailPage({ id }: { id: number }) {
             {units.length === 0 ? <p className="muted">None reported.</p> : <p className="small">{units.map((u) => u.name).join(", ")}</p>}
           </div>
         </section>
+        <ContainersCard items={data.containers} docker={units.some((u) => u.name?.startsWith("docker."))} />
+        <AppsCard host={h} items={data.apps} />
         <section className="card wide">
           <h2>Application directories</h2>
           <p className="muted small">Names only, from directories listed in the agent config. Sensitive names are excluded.</p>

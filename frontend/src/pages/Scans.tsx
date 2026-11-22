@@ -53,12 +53,12 @@ export function RunSummary({ run }: { run: ScanRun }) {
 }
 
 const cols: Col<ScanRun>[] = [
-  { id: "id", label: "#", fixed: true, cell: (r) => <Link to={`/scans/${r.id}`}>{r.id}</Link> },
-  { id: "kind", label: "Kind", cell: (r) => <>{r.kind}{r.params?.mode === "pending" && <span className="cell-sub"> (new items)</span>}
-    {Array.isArray(r.params?.only) && <span className="cell-sub"> ({r.params!.only.map((x: string) => LABELS[x] ?? x).join(", ")})</span>}</> },
-  { id: "target", label: "Target", cell: (r) => r.target_label ?? <span className="muted">-</span> },
+  { id: "id", label: "#", fixed: true, cell: (r) => <Link to={`/scans/${r.id}`} className="id">{r.id}</Link> },
+  { id: "kind", label: "Kind", cell: (r) => <span className="nowrap">{r.kind}{r.params?.mode === "pending" && <span className="cell-sub"> (new items)</span>}
+    {Array.isArray(r.params?.only) && <span className="cell-sub"> ({r.params!.only.map((x: string) => LABELS[x] ?? x).join(", ")})</span>}</span> },
+  { id: "target", label: "Target", cell: (r) => r.target_label ? <span className="nowrap">{r.target_label}</span> : <span className="muted">-</span> },
   { id: "status", label: "Status", fixed: true, cell: (r) => <Status s={r.status} /> },
-  { id: "progress", label: "Progress", cell: (r) => <span className="small">{r.error ?? r.progress}</span> },
+  { id: "progress", label: "Progress", cell: (r) => <span className="small clamp narrow" title={r.error ?? r.progress ?? ""}>{r.error ?? r.progress}</span> },
   { id: "queued", label: "Queued", cell: (r) => <When iso={r.created_at} /> },
   { id: "finished", label: "Finished", cell: (r) => <When iso={r.finished_at} /> },
 ];

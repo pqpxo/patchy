@@ -68,8 +68,37 @@ class Service(_M):
     unit: S
 
 
+class ContainerPort(_M):
+    ip: S | None = None
+    private: int = Field(ge=0, le=65535)
+    public: int | None = Field(None, ge=0, le=65535)
+    type: S | None = None
+
+
+class ContainerMount(_M):
+    type: S | None = None
+    name: S | None = None
+    source: P | None = None
+    destination: P
+    rw: bool = True
+
+
 class Container(_M):
     image: S
+    name: S | None = None
+    state: S | None = None
+    status: S | None = None
+    version: S | None = None  # org.opencontainers.image.version label
+    compose_project: S | None = None
+    compose_service: S | None = None
+    ports: list[ContainerPort] = Field(default_factory=list, max_length=200)
+    mounts: list[ContainerMount] = Field(default_factory=list, max_length=200)
+
+
+class App(_M):
+    manager: Literal["dpkg", "snap", "flatpak"]
+    name: S
+    version: S | None = None
 
 
 class PathListing(_M):
@@ -89,6 +118,7 @@ class Report(_M):
     listening: list[Listener] = Field(default_factory=list, max_length=5000)
     services: list[Service] = Field(default_factory=list, max_length=2000)
     containers: list[Container] = Field(default_factory=list, max_length=1000)
+    apps: list[App] = Field(default_factory=list, max_length=5000)
     paths: list[PathListing] = Field(default_factory=list, max_length=20)
     errors: list[Annotated[str, StringConstraints(max_length=500)]] = Field(default_factory=list, max_length=100)
 
@@ -159,13 +189,23 @@ def ingest(db: Session, agent: Agent, report: Report, ip: str) -> tuple[ScanRun,
             "details": {"note": "detected by allowlisted version command"},
             "paths": [(pr.path, "executable")] if pr.path else [],
         })
-    for ct in report.containers:
-        image, _, tag = ct.image.rpartition(":") if ":" in ct.image.rsplit("/", 1)[-1] else (ct.image, "", "")
+    for image_ref in sorted({ct.image for ct in report.containers}):
+        ct = next(c for c in report.containers if c.image == image_ref)
+        image, _, tag = image_ref.rpartition(":") if ":" in image_ref.rsplit("/", 1)[-1] else (image_ref, "", "")
+        if (not tag or tag == "latest") and ct.version:  # the image's own version label beats a moving tag
+            tag = ct.version
         rows.append({
-            "identity": f"container|{ct.image}", "name": image or ct.image, "component_type": "container_image",
+            "identity": f"container|{image_ref}", "name": image or image_ref, "component_type": "container_image",
             "ecosystem": None, "version": tag or None,
             "version_status": "exact" if tag and tag != "latest" else "unknown", "details": None, "paths": [],
         })
+    for a in report.apps:  # dpkg ones are already os_package components above
+        if a.manager != "dpkg":
+            rows.append({
+                "identity": f"{a.manager}|{a.name}", "name": a.name, "component_type": "application", "ecosystem": None,
+                "version": a.version, "version_status": "exact" if a.version else "unknown",
+                "details": {"note": f"installed with {a.manager}"}, "paths": [],
+            })
     ids = sync_components(db, run, f"host:{host.id}", rows, source="agent", host_id=host.id)
 
     db.execute(delete(HostService).where(HostService.host_id == host.id))
@@ -183,11 +223,24 @@ def ingest(db: Session, agent: Agent, report: Report, ip: str) -> tuple[ScanRun,
                 continue
             db.add(HostPath(host_id=host.id, root=listing.root, path=path, is_dir=e.get("type") == "dir"))
 
+    containers = []
+    for ct in report.containers:
+        d = ct.model_dump()
+        for mnt in d["mounts"]:
+            if mnt["source"] and SENSITIVE.search(mnt["source"]):
+                mnt["source"] = None
+                dropped += 1
+        containers.append(d)
+    host.containers = containers
+    host.apps = [a.model_dump() for a in report.apps]
+    host.rescan_requested_at = None
+
     agent.last_seen_at, agent.last_ip, agent.agent_version = now, ip, report.agent_version
     run.status = "partial" if report.errors else "succeeded"
     run.finished_at = utcnow()
     run.summary = {"packages": len(report.packages), "components": len(rows), "probes": len(report.probes),
                    "listening": len(report.listening), "services": len(report.services),
+                   "containers": len(report.containers), "apps": len(report.apps),
                    "path_entries_dropped_as_sensitive": dropped, "agent_errors": report.errors[:50],
                    "unmapped_os": not any(r["ecosystem"] for r in rows if r["component_type"] == "os_package")
                    and bool(report.packages)}
