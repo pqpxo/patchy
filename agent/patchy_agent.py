@@ -7,7 +7,10 @@ What it reads (each part can be switched off in the config):
   - Listening sockets from /proc/net/{tcp,tcp6,udp,udp6} (process names only where readable)
   - Running systemd service names (`systemctl list-units`)
   - Versions from an allowlist of fixed commands (eg `nginx -v`), only those named in the config
-  - Optional: container image names (`docker ps`), needs docker group membership (root-equivalent)
+  - Software added to the base OS: manually installed packages that aren't part of the base system
+    (apt's auto-installed marks, the installer's package list or package priority), plus Snap and Flatpak apps
+  - Optional: Docker containers (name, image, state, published ports, mount locations; never environment
+    variables), read from the Docker socket. Needs docker group membership, which is root-equivalent.
   - Optional: names (never contents) of files under directories you list, with depth/count limits
 
 What it never reads or sends: file contents, environment variables, keys, passwords, tokens,
@@ -19,11 +22,14 @@ Usage:
   patchy_agent.py --sample --send      send the SAMPLE report (to test enrolment end to end)
   patchy_agent.py --check              verify the server URL and credential
   patchy_agent.py                      collect and send (what the systemd timer runs)
+  patchy_agent.py --poll               send a report only if Rescan was pressed in Patchy (polled every 5 min)
 Python 3.8+, standard library only.
 """
 from __future__ import annotations
 
 import argparse
+import gzip
+import http.client
 import json
 import os
 import posixpath
@@ -39,7 +45,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 DEFAULT_CONFIG = "/etc/patchy-agent/config.json"
 SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_OUTPUT = 64 * 1024
@@ -81,7 +87,7 @@ DEFAULTS = {
     "ca_file": None,
     "allow_insecure_http": False,
     "timeout_seconds": 30,
-    "collect": {"packages": True, "listening_ports": True, "services": True, "docker_images": False,
+    "collect": {"packages": True, "apps": True, "listening_ports": True, "services": True, "docker_images": False,
                 "version_probes": DEFAULT_PROBES},
     "app_dirs": [],
 }
@@ -142,7 +148,8 @@ def host_info():
     return {"hostname": socket.gethostname(), "ips": ips, "os": os_release(), "kernel": u.release, "arch": u.machine}
 
 
-def dpkg_packages(path="/var/lib/dpkg/status"):
+def dpkg_packages(path="/var/lib/dpkg/status", meta=None):
+    """meta, if given, is filled with name -> (priority, essential) for added_apps()."""
     out = []
     for block in read_text(path).split("\n\n"):
         f = {}
@@ -152,6 +159,8 @@ def dpkg_packages(path="/var/lib/dpkg/status"):
                 f[k] = v.strip()
         if "install ok installed" not in f.get("Status", "") or not f.get("Package"):
             continue
+        if meta is not None:
+            meta[f["Package"]] = (f.get("Priority"), f.get("Essential") == "yes")
         src, src_ver = f["Package"], f.get("Version")
         if f.get("Source"):
             m = re.match(r"^(\S+)(?:\s+\(([^)]+)\))?", f["Source"])
@@ -182,9 +191,9 @@ def rpm_packages():
     return out
 
 
-def packages(errors):
+def packages(errors, meta=None):
     if os.path.exists("/var/lib/dpkg/status"):
-        return dpkg_packages()
+        return dpkg_packages(meta=meta)
     if os.path.exists("/lib/apk/db/installed"):
         return apk_packages()
     if shutil.which("rpm", path=SAFE_PATH):
@@ -245,12 +254,138 @@ def services():
     return [{"unit": line.split()[0]} for line in (text or "").splitlines() if line.strip()]
 
 
-def docker_images(errors):
-    exe, text = run_fixed(["docker", "ps", "--format", "{{.Image}}"], 20)
-    if exe and text is not None and "permission denied" in text.lower():
-        errors.append("docker_images: no permission to read the Docker socket.")
+DOCKER_SOCKET = "/var/run/docker.sock"
+
+
+class _UnixHTTP(http.client.HTTPConnection):
+    """HTTP over a Unix socket, so the Docker API can be read without the docker CLI."""
+
+    def __init__(self, path, timeout):
+        super().__init__("localhost", timeout=timeout)
+        self._path = path
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self._path)
+
+
+def docker_containers(errors, sock_path=DOCKER_SOCKET):
+    """Containers from the Docker API list endpoint (all states). Labels and env are never sent."""
+    if not os.path.exists(sock_path):
         return []
-    return [{"image": line.strip()} for line in sorted(set((text or "").splitlines())) if line.strip()][:1000]
+    conn = _UnixHTTP(sock_path, 20)
+    try:
+        conn.request("GET", "/containers/json?all=1")
+        r = conn.getresponse()
+        status, body = r.status, r.read(8 * 1024 * 1024)
+    except PermissionError:
+        errors.append("docker: no permission to read the Docker socket. Add patchy-agent to the docker group.")
+        return []
+    except OSError as e:
+        errors.append(f"docker: {type(e).__name__}")
+        return []
+    finally:
+        conn.close()
+    if status != 200:
+        errors.append(f"docker: API returned HTTP {status}")
+        return []
+    out = []
+    for c in json.loads(body)[:1000]:
+        labels = c.get("Labels") or {}
+        ports, seen = [], set()
+        for p in c.get("Ports") or []:
+            key = (p.get("PrivatePort"), p.get("PublicPort"), p.get("Type"))
+            if p.get("PrivatePort") and key not in seen:  # Docker lists IPv4 and IPv6 bindings separately
+                seen.add(key)
+                ports.append({"ip": p.get("IP"), "private": p["PrivatePort"], "public": p.get("PublicPort"),
+                              "type": p.get("Type")})
+        mounts = []
+        for m in c.get("Mounts") or []:
+            src = m.get("Source")
+            if src and SENSITIVE.search(src):
+                src = None
+            if m.get("Destination"):
+                mounts.append({"type": m.get("Type"), "name": m.get("Name"), "source": src,
+                               "destination": m["Destination"], "rw": bool(m.get("RW"))})
+        out.append({"name": ((c.get("Names") or ["?"])[0] or "?").lstrip("/"), "image": c.get("Image") or "unknown",
+                    "state": c.get("State"), "status": c.get("Status"),
+                    "version": labels.get("org.opencontainers.image.version"),
+                    "compose_project": labels.get("com.docker.compose.project"),
+                    "compose_service": labels.get("com.docker.compose.service"), "ports": ports, "mounts": mounts})
+    return out
+
+
+BASE_PRIORITIES = {"required", "important", "standard"}
+# Boot, kernel, firmware and distro plumbing that images mark as manually installed.
+OS_PLUMBING = re.compile(r"^(lib|linux-|grub|shim|efibootmgr|firmware-|raspberrypi-|raspi-|rpi-|cloud-|ubuntu-|debian-"
+                         r"|tasksel|os-prober|initramfs|systemd|netplan|ifupdown|dhcpcd|network-manager|openssh-|ssh$"
+                         r"|sudo$|locales|tzdata|keyboard-|console-|language-pack)|-firmware$")
+
+
+def apt_auto_installed(path="/var/lib/apt/extended_states"):
+    try:
+        text = read_text(path)
+    except OSError:
+        return None
+    auto = set()
+    for block in text.split("\n\n"):
+        f = dict(line.split(": ", 1) for line in block.splitlines() if ": " in line)
+        if f.get("Auto-Installed") == "1" and f.get("Package"):
+            auto.add(f["Package"])
+    return auto
+
+
+def installer_packages(path="/var/log/installer/initial-status.gz"):
+    """Packages present when the OS was installed, if the installer left its list and we may read it."""
+    try:
+        with gzip.open(path, "rt", encoding="utf-8", errors="replace") as f:
+            text = f.read(50 * 1024 * 1024)
+    except OSError:
+        return None
+    return set(re.findall(r"^Package: (\S+)", text, re.M))
+
+
+def dpkg_added(pkgs, meta):
+    """apt packages someone chose to install: manual, not in the installer's list, not base priority or plumbing."""
+    auto, initial = apt_auto_installed(), installer_packages()
+    if auto is None:  # no apt marks, so manual can't be told from automatic
+        return []
+    out = []
+    for p in pkgs:
+        name = p["name"]
+        priority, essential = meta.get(name, (None, False))
+        if name in auto or essential or OS_PLUMBING.search(name):
+            continue
+        if initial is not None and name in initial:
+            continue
+        if initial is None and priority in BASE_PRIORITIES:
+            continue
+        out.append({"manager": "dpkg", "name": name, "version": p["version"]})
+    return out
+
+
+def snap_apps():
+    _, text = run_fixed(["snap", "list"], 20)
+    out = []
+    for line in (text or "").splitlines()[1:]:
+        cols = line.split()
+        if len(cols) < 6 or cols[5] in ("base", "core", "snapd") or cols[0].startswith(
+                ("core", "bare", "snapd", "gtk-common-themes", "gnome-", "kf5-", "mesa-")):
+            continue
+        out.append({"manager": "snap", "name": cols[0], "version": cols[1]})
+    return out
+
+
+def flatpak_apps():
+    _, text = run_fixed(["flatpak", "list", "--app", "--system", "--columns=application,version"], 20)
+    return [{"manager": "flatpak", "name": p[0], "version": p[1] if len(p) > 1 and p[1] else None}
+            for p in (line.split("\t") for line in (text or "").splitlines()) if p and "." in p[0]]
+
+
+def added_apps(pkgs, meta):
+    out = dpkg_added(pkgs, meta) if pkgs and pkgs[0].get("manager") == "dpkg" else []
+    return (out + snap_apps() + flatpak_apps())[:5000]
 
 
 def probes(names, errors):
@@ -306,14 +441,15 @@ def list_dir(root, max_depth, max_files):
 
 
 def collect(cfg):
-    errors, col = [], cfg["collect"]
+    errors, col, meta = [], cfg["collect"], {}
     report = {"schema": 1, "report_id": str(uuid.uuid4()), "agent_version": VERSION, "generated_at": now_iso(),
-              "host": host_info(), "packages": [], "probes": [], "listening": [], "services": [], "containers": [],
-              "paths": [], "errors": errors}
-    steps = [("packages", col.get("packages"), lambda: packages(errors)),
+              "host": host_info(), "packages": [], "apps": [], "probes": [], "listening": [], "services": [],
+              "containers": [], "paths": [], "errors": errors}
+    steps = [("packages", col.get("packages"), lambda: packages(errors, meta)),
+             ("apps", col.get("apps"), lambda: added_apps(report["packages"], meta)),
              ("listening", col.get("listening_ports"), listening),
              ("services", col.get("services"), services),
-             ("containers", col.get("docker_images"), lambda: docker_images(errors)),
+             ("containers", col.get("docker_images"), lambda: docker_containers(errors)),
              ("probes", bool(col.get("version_probes")), lambda: probes(col.get("version_probes") or [], errors))]
     for key, enabled, fn in steps:
         if enabled:
@@ -349,7 +485,12 @@ def sample_report():
         "listening": [{"protocol": "tcp", "ip": "0.0.0.0", "port": 80, "process": "nginx"},
                       {"protocol": "tcp", "ip": "0.0.0.0", "port": 22, "process": None}],
         "services": [{"unit": "nginx.service"}, {"unit": "ssh.service"}],
-        "containers": [], "paths": [{"root": "/srv/sample-app", "truncated": False,
+        "apps": [{"manager": "dpkg", "name": "nginx", "version": "1.22.1-9"}],
+        "containers": [{"name": "sample-web", "image": "nginx:1.27", "state": "running", "status": "Up 2 hours",
+                        "ports": [{"ip": "0.0.0.0", "private": 80, "public": 8080, "type": "tcp"}],
+                        "mounts": [{"type": "bind", "source": "/srv/sample-app/html", "destination": "/usr/share/nginx/html",
+                                    "rw": False}]}],
+        "paths": [{"root": "/srv/sample-app", "truncated": False,
                                      "entries": [{"path": "/srv/sample-app/app.py", "type": "file"}]}],
         "errors": ["SAMPLE REPORT: synthetic data generated with --sample, not read from a real host."],
     }
@@ -416,6 +557,7 @@ def main(argv=None):
     ap.add_argument("--sample", action="store_true", help="use a synthetic SAMPLE report (reads nothing)")
     ap.add_argument("--send", action="store_true", help="with --sample: send it to the server")
     ap.add_argument("--check", action="store_true", help="test the server URL and credential")
+    ap.add_argument("--poll", action="store_true", help="send a report only if Rescan was pressed in Patchy")
     ap.add_argument("--version", action="version", version=VERSION)
     a = ap.parse_args(argv)
 
@@ -427,6 +569,10 @@ def main(argv=None):
         code, body = request(cfg, "GET", "/api/agent/ping")
         print(f"HTTP {code}: {body}")
         return 0 if code == 200 else 1
+    if a.poll:
+        code, body = request(cfg, "GET", "/api/agent/poll")
+        if code != 200 or not body.get("report"):  # nothing wanted, or a server too old to ask
+            return 0
     report = sample_report() if a.sample else collect(cfg)
     if a.dry_run:
         print(json.dumps(report, indent=2))

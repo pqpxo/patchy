@@ -31,7 +31,7 @@ Self-hosted software inventory and vulnerability tracker for a home lab. Registe
 
 - **Inventory**: languages, libraries, web servers, databases, OS packages, container images and other software, with versions, hosts, IPs, ports, paths, repositories and notes. Search, filter, edit and delete.
 - **GitHub discovery**: reads manifests and lockfiles through the GitHub API. Nothing is cloned, built or executed.
-- **Linux agent**: one read-only Python script on a systemd timer. It sends reports outbound over HTTPS using a revocable per-host token.
+- **Linux agent**: one read-only Python script on a systemd timer. It sends reports outbound over HTTPS using a revocable per-host token, lists Docker containers and software added to the base OS, and can be asked to rescan from the host page.
 - **Vulnerabilities**: OSV matching with evidence, NVD product (CPE) matching for servers and runtimes, CISA KEV flags, FIRST EPSS exploit likelihood, NVD scores, fixed versions and remediation taken from the advisory.
 - **End of life**: support dates from endoflife.date for runtimes, frameworks, servers and host operating systems.
 - **Fixes**: open findings grouped into the fewest upgrade steps per host, repository and manifest, with a copy-paste command where it's safe to give one.
@@ -159,7 +159,7 @@ A lockfile in the same folder takes precedence over its manifest's looser constr
 
 ## Linux agent
 
-The agent is one Python 3.8+ file using only the standard library ([agent/patchy_agent.py](agent/patchy_agent.py)). It runs every 6 hours from a systemd timer as an unprivileged `patchy-agent` user and POSTs a JSON report to Patchy. It never listens on a port and never takes commands from the server.
+The agent is one Python 3.8+ file using only the standard library ([agent/patchy_agent.py](agent/patchy_agent.py)). It runs every 6 hours from a systemd timer as an unprivileged `patchy-agent` user and POSTs a JSON report to Patchy. A second timer asks Patchy every 5 minutes whether **Rescan** was pressed, and if so sends the same report early. It never listens on a port and never runs commands from the server.
 
 ### Enrol a host
 
@@ -174,7 +174,7 @@ sudo sh install.sh https://patchy.example.lan
 
 To read the scripts first, run `less patchy_agent.py install.sh` (press <kbd>q</kbd> to quit) before the last line.
 
-The installer prompts for the token (input hidden, kept out of shell history), writes `/etc/patchy-agent/config.json` and `/etc/patchy-agent/token` (mode 0640, `root:patchy-agent`), installs a hardened service and timer, checks the credential and sends a first report.
+The installer prompts for the token (input hidden, kept out of shell history), writes `/etc/patchy-agent/config.json` and `/etc/patchy-agent/token` (mode 0640, `root:patchy-agent`), installs a hardened service and two timers, checks the credential and sends a first report. If Docker is running it asks whether to list containers (see below).
 
 > [!TIP]
 > Try it without touching a real host first:
@@ -186,10 +186,11 @@ The installer prompts for the token (input hidden, kept out of shell history), w
 |---|---|---|
 | OS, kernel, arch, hostname, primary IP | `/etc/os-release`, `uname`, a routing lookup (no packet sent) | always |
 | Installed packages | `/var/lib/dpkg/status`, `/lib/apk/db/installed` or `rpm -qa` | `collect.packages` |
+| Software added to the base OS | apt's manual marks, the installer's package list or package priority, `snap list`, `flatpak list` | `collect.apps` |
 | Listening TCP/UDP sockets | `/proc/net/*`; process names only where readable | `collect.listening_ports` |
 | Running services | `systemctl list-units --state=running` | `collect.services` |
 | Versions of common software | fixed allowlist (`nginx -v`, `python3 --version`, `openssl version`...) | `collect.version_probes` |
-| Running container images | `docker ps` (needs the docker group, see below) | `collect.docker_images` (off) |
+| Docker containers: name, image, state, ports, mount locations | Docker API socket (needs the docker group, see below). Never env or labels | `collect.docker_images` (off) |
 | File and folder **names** under chosen app directories | `os.scandir`, no symlink following, depth and count limits | `app_dirs` (empty) |
 
 It never reads file contents, environment variables, keys, passwords, tokens or shell history. Sensitive names (`.ssh`, `.env`, `*.key`, `*.pem`, `id_*`, `shadow`, `.git`, ...) are skipped by the agent and dropped again by the server. Broad roots such as `/`, `/home`, `/etc` and `/var` are refused. Commands run from a fixed allowlist as argument lists, with no shell, a clean environment, a timeout and capped output.
@@ -203,16 +204,18 @@ It never reads file contents, environment variables, keys, passwords, tokens or 
 - Runs as `patchy-agent` with `NoNewPrivileges`, an empty capability set, `ProtectSystem=strict`, `ProtectHome=yes` and `PrivateTmp`.
 - Outbound HTTPS to your portal only. Redirects are refused so the token can't be forwarded elsewhere. For a self-signed certificate set `ca_file`. For a trusted LAN without TLS set `"allow_insecure_http": true`.
 - To list an app directory under `/home`, add a drop-in: `sudo systemctl edit patchy-agent` with `[Service]` and `ProtectHome=read-only`.
-- `docker_images` needs `SupplementaryGroups=docker` in a drop-in. Docker group membership is equivalent to root, so only enable it if you accept that.
+- Containers need the docker group, which is equivalent to root, so only enable it if you accept that. The installer asks on a fresh install. To turn it on later, run `sudo usermod -aG docker patchy-agent`, then set `"docker_images": true` in `/etc/patchy-agent/config.json`.
 - Because it runs unprivileged, it can't see the processes behind other users' sockets, and those show as "unknown". That is deliberate.
 
 ### Rotate, upgrade, remove
 
 - **Rotate:** on the host page choose **Rotate**. The old token stops working at once. Put the new one in `/etc/patchy-agent/token`.
 - **Revoke:** choose **Revoke**. Reports are rejected with HTTP 401.
-- **Upgrade:** download the new `patchy_agent.py` and `install.sh` and run `sudo sh install.sh` again. The config and token are kept.
+- **Upgrade:** when a newer agent ships, the host page shows an **Update** badge and the command to run. It downloads the files and re-runs `sudo sh install.sh`, keeping the config and token.
+- **Rescan:** the **Rescan** button re-checks findings at once and asks the agent (1.2 or later) for a fresh report, which arrives within about 5 minutes.
 - **Remove:** `sudo sh uninstall.sh`, then revoke the credential in Patchy.
 - **Logs:** `journalctl -u patchy-agent`. **Run now:** `sudo systemctl start patchy-agent`.
+- The **?** button on the host page's Agent card has a short guide to all of this.
 
 Debian, Raspberry Pi OS and Ubuntu packages are matched against OSV's distro advisories by **source** package (for example `libssl3` maps to `openssl`). Alpine, Rocky and Alma are queried too. Other RPM distros are inventory only.
 
@@ -344,6 +347,7 @@ Restore into a fresh stack with `gunzip -c file.sql.gz | docker compose exec -T 
 
 - Version comparison is done locally only for PyPI, npm, Go, crates.io, Debian and Ubuntu. Maven, Packagist, RubyGems, Alpine, Rocky and Alma rely on OSV's server-side version match. NuGet has no parser yet.
 - Container images and web-server configs get end-of-life tracking only. Patchy doesn't scan image layers.
+- "Added software" is a heuristic. Some OS packages marked as manually installed by the image builder can still show, especially on Raspberry Pi OS, which keeps no installer package list. Added apt packages are vulnerability-checked as OS packages, so third-party ones such as Plex usually have no advisories in OSV.
 - NVD product matching only knows products with a curated or endoflife.date CPE, or one you set on a manual asset. Its results are possible matches, not confirmed.
 - Without a lockfile, npm/PyPI/Cargo/Composer dependencies are constraints, shown as version unknown.
 - `go.sum` and Gradle files with variables or version catalogs aren't resolved.

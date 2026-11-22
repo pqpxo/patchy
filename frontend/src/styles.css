@@ -203,6 +203,14 @@ main#main:focus { outline: none; }
 .sub { color: var(--ink-3); margin: 4px 0 0; }
 .head-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.kv + .actions, .kv + .token-box, .token-box + .actions { margin-top: 16px; }
+.nowrap { white-space: nowrap; }
+.eol-line { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.eol-line a { display: inline-flex; align-items: center; gap: 3px; }
+.scroll-box { max-height: 24rem; overflow: auto; }
+.mounts { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 0.86rem; }
+.mounts code { overflow-wrap: anywhere; }
+.mounts .badge { margin-left: 6px; }
 .grid { display: grid; gap: var(--gap); margin-bottom: var(--gap); }
 .grid.two { grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); }
 .grid.dash { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); align-items: start; }
@@ -314,6 +322,7 @@ main#main:focus { outline: none; }
 .th-sort.on { color: var(--ink); } .th-sort.on .icon { opacity: 1; color: var(--signal); }
 .cell-sub { font-size: 0.84rem; color: var(--ink-3); }
 .clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 42rem; }
+.clamp.narrow { max-width: 22rem; }
 .ver { font-family: var(--mono); font-size: 0.88rem; }
 .pager { display: flex; gap: 12px; align-items: center; margin-top: 10px; justify-content: flex-end; flex-wrap: wrap; font-size: 0.88rem; }
 .pager > .muted:first-child { margin-right: auto; }

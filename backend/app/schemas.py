@@ -237,6 +237,7 @@ class HostOut(Out):
     created_at: datetime
     agent: AgentOut | None = None
     agent_outdated: bool = False
+    rescan_requested_at: datetime | None = None
     component_count: int = 0
     open_findings: int = 0
     exposure: dict[str, int] | None = None
