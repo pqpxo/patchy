@@ -93,15 +93,22 @@ type ImageSummary = { packages: number; total: number; worst: string | null; kev
 
 const longDate = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
-/** Agents before 1.2 have no 5-minute poll, so they never see a Rescan. Unknown (never reported) counts as able. */
-const ignoresRescan = (v?: string | null) => {
-  if (!v) return false;
-  const [major, minor] = v.split(".").map(Number);
-  return major < 1 || (major === 1 && minor < 2);
+const agentAtLeast = (v: string | null | undefined, major: number, minor: number) => {
+  const [a, b] = (v ?? "").split(".").map(Number);
+  return a > major || (a === major && b >= minor);
 };
 
-function ImageFindings({ s }: { s?: ImageSummary }) {
-  if (!s) return <span className="muted" title="No package list for this image yet. Needs Syft on the host; new images are scanned on the next reports.">Not scanned</span>;
+/** Agents before 1.2 have no 5-minute poll, so they never see a Rescan. Unknown (never reported) counts as able. */
+const ignoresRescan = (v?: string | null) => !!v && !agentAtLeast(v, 1, 2);
+
+function ImageFindings({ s, c, host, onScan }: { s?: ImageSummary; c: Container; host: Host; onScan: (imageId: string) => void }) {
+  if (!s) {
+    if (c.image_id && host.image_scan_requests?.includes(c.image_id))
+      return <><span className="badge tone-info">Queued</span><div className="cell-sub">within 5 minutes</div></>;
+    if (c.image_id && host.agent && !host.agent.revoked_at && agentAtLeast(host.agent.agent_version, 1, 4))
+      return <button className="btn small" onClick={() => onScan(c.image_id!)} title="List this image's packages on the host and check them for vulnerabilities">Scan</button>;
+    return <span className="muted">Not scanned</span>;
+  }
   return <>
     {s.total ? <span><Sev s={s.worst} /> <span className="num">{s.total}</span> <Kev on={s.kev} /></span>
       : <span className="badge tone-good">None found</span>}
@@ -109,7 +116,14 @@ function ImageFindings({ s }: { s?: ImageSummary }) {
   </>;
 }
 
-function ContainersCard({ host, items, images, docker }: { host: Host; items: Container[]; images: Record<string, ImageSummary>; docker: boolean }) {
+function ContainersCard({ host, items, images, docker, onChange }: {
+  host: Host; items: Container[]; images: Record<string, ImageSummary>; docker: boolean; onChange: () => void;
+}) {
+  const scan = async (imageId: string) => {
+    try { await post(`/api/hosts/${host.id}/images/scan`, { image_id: imageId }); toast("Scan requested. The agent picks it up within 5 minutes."); onChange(); }
+    catch (e) { toast(errText(e), "bad"); }
+  };
+  const canScan = !!host.agent && !host.agent.revoked_at && agentAtLeast(host.agent.agent_version, 1, 4);
   return (
     <section className="card wide">
       <h2>Containers <span className="num muted">{items.length}</span></h2>
@@ -124,7 +138,7 @@ function ContainersCard({ host, items, images, docker }: { host: Host; items: Co
               <td><strong>{c.name ?? "unnamed"}</strong>
                 {c.compose_project && <div className="cell-sub">{c.compose_project}{c.compose_service ? ` / ${c.compose_service}` : ""}</div>}</td>
               <td><span className="ver">{c.image}</span>{c.version && <div className="cell-sub">version {c.version}</div>}</td>
-              <td className="nowrap"><ImageFindings s={images[c.image]} /></td>
+              <td className="nowrap"><ImageFindings s={images[c.image]} c={c} host={host} onScan={scan} /></td>
               <td><span className={`badge ${c.state === "running" ? "tone-good" : "tone-muted"}`}>{c.state ? c.state[0].toUpperCase() + c.state.slice(1) : "Unknown"}</span>
                 {c.status && <div className="cell-sub">{c.status}</div>}</td>
               <td className="num nowrap">{c.ports.length ? c.ports.map((p, j) =>
@@ -139,10 +153,9 @@ function ContainersCard({ host, items, images, docker }: { host: Host; items: Co
           ))}</tbody>
         </table></div>
       )}
-      {items.length > 0 && Object.keys(images).length === 0 && (host.agent_outdated
-        ? <p className="muted small gap-top">To check the packages inside these images, update the agent to 1.3 or later and answer yes when it offers Syft.</p>
-        : <><p className="muted small gap-top">To check the packages inside these images, install Syft for the agent (it downloads a pinned, checksum-verified copy), then press Rescan:</p>
-          <CodeBlock code={SYFT_ON} /></>)}
+      {items.length > 0 && <p className="muted small gap-top">{canScan
+        ? "Scan lists an image's packages on the host and checks them for vulnerabilities. The agent starts within 5 minutes and a large image can take a few more. It needs Syft on the host; the ? on the Agent card shows how to add it."
+        : "To scan container images on request, update the agent to 1.4 or later from the Agent card."}</p>}
     </section>
   );
 }
@@ -201,7 +214,7 @@ function AgentHelp() {
       <h3>Docker containers</h3>
       <p>Reading the Docker socket needs the docker group, which is root-equivalent, so it is off unless you allow it at install time. To turn it on later:</p>
       <CodeBlock code={DOCKER_ON} />
-      <p>With containers on, the agent can also list the packages inside each image with Syft, so they are checked for vulnerabilities too. The installer offers it once. To add it later:</p>
+      <p>With containers on, <strong>Scan</strong> on a container asks the agent to list the packages inside its image with Syft, so they are checked for vulnerabilities too. Each image is scanned once and kept until it changes. To scan every new image automatically instead, set <code>"image_scan": "auto"</code> under <code>collect</code> in the config. The installer offers Syft once. To add it later:</p>
       <CodeBlock code={SYFT_ON} />
       <h3>Rotate or revoke</h3>
       <p><strong>Rotate</strong> issues a new token and stops the old one at once; paste the new token into <code>/etc/patchy-agent/token</code>. <strong>Revoke</strong> stops the agent reporting.</p>
@@ -276,7 +289,7 @@ type HostData = { host: Host; services: { name: string | null; protocol: string 
 
 export function HostDetailPage({ id }: { id: number }) {
   const { data, error, reload } = useLoad(() => get<HostData>(`/api/hosts/${id}`), [id],
-    (d) => (d?.host.rescan_requested_at ? 5000 : null));
+    (d) => (d?.host.rescan_requested_at || d?.host.image_scan_requests?.length ? 5000 : null));
   const [tab, setTab] = useQueryParam("tab");
   const t = tab || "overview";
   const aSort = useSort("name", "asc", true);
@@ -348,7 +361,7 @@ export function HostDetailPage({ id }: { id: number }) {
             {units.length === 0 ? <p className="muted">None reported.</p> : <p className="small">{units.map((u) => u.name).join(", ")}</p>}
           </div>
         </section>
-        <ContainersCard host={h} items={data.containers} images={data.images ?? {}} docker={units.some((u) => u.name?.startsWith("docker."))} />
+        <ContainersCard host={h} items={data.containers} images={data.images ?? {}} docker={units.some((u) => u.name?.startsWith("docker."))} onChange={reload} />
         <AppsCard host={h} items={data.apps} />
         <section className="card wide">
           <h2>Application directories</h2>

@@ -2,6 +2,16 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.4.0 - 2026-11-22
+
+### Changed
+- Container images are scanned when you ask. Each container on the host page has a **Scan** button; the agent picks the request up at its next 5-minute check-in and scans just that image. Images already scanned stay cached and keep being checked against new advisories without rescanning. To scan every new image automatically, as 1.3 did, set `"image_scan": "auto"` under `collect` in the agent config.
+- Syft runs on one CPU core (`GOMAXPROCS=1`), so a scan no longer loads every core on the host.
+- Agent 1.4.0. Hosts on older agents show the Update badge; the Scan button appears once a host reports from 1.4.
+
+### Added
+- Database migration 0004 adds one nullable column for pending scan requests. Nothing is changed or dropped.
+
 ## 1.3.5 - 2026-11-22
 
 ### Fixed
