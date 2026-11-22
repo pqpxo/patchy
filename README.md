@@ -217,7 +217,7 @@ It never reads file contents, environment variables, keys, passwords, tokens or 
 - **Rotate:** on the host page choose **Rotate**. The old token stops working at once. Put the new one in `/etc/patchy-agent/token`.
 - **Revoke:** choose **Revoke**. Reports are rejected with HTTP 401.
 - **Upgrade:** when a newer agent ships, the host page shows an **Update** badge and the command to run. It downloads the files and re-runs `sudo sh install.sh`, keeping the config and token.
-- **Rescan:** the **Rescan** button re-checks findings at once and asks the agent (1.2 or later) for a fresh report, which arrives within about 5 minutes.
+- **Rescan:** the **Rescan** button re-checks findings at once and asks the agent (1.2 or later) for a fresh report, which arrives within about 5 minutes. If a report is already being collected, the agent lets that one answer the Rescan instead of starting a second scan.
 - **Remove:** `sudo sh uninstall.sh`, then revoke the credential in Patchy.
 - **Logs:** `journalctl -u patchy-agent`. **Run now:** `sudo systemctl start patchy-agent`.
 - The **?** button on the host page's Agent card has a short guide to all of this.

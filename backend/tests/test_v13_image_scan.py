@@ -1,4 +1,10 @@
 """v1.3: packages inside container images, listed by Syft on the host and matched like any other package."""
+import json
+import os
+import sys
+
+import pytest
+
 from app import eol
 from app.agent_ingest import purl_package
 from app.db import utcnow
@@ -60,6 +66,28 @@ def test_each_scan_is_cached_at_once_so_a_stopped_run_keeps_its_work(monkeypatch
     monkeypatch.setattr(agent_mod, "syft_scan", lambda exe, image_id: {"distro": {}, "packages": []})
     monkeypatch.setattr(agent_mod, "IMAGE_SCAN_SECONDS", 0)
     assert [i["image"] for i in agent_mod.image_packages(containers, [], state_dir=str(tmp_path))] == ["a:1"]
+
+
+def test_only_one_report_is_collected_at_a_time(monkeypatch, tmp_path):
+    class Fcntl:  # stand-in for Linux flock: the second exclusive lock on the file fails
+        LOCK_EX, LOCK_NB, held = 2, 4, []
+
+        @classmethod
+        def flock(cls, fd, op):
+            if cls.held:
+                raise BlockingIOError
+            cls.held.append(fd)
+    monkeypatch.setitem(sys.modules, "fcntl", Fcntl)
+    first = agent_mod.run_lock(str(tmp_path))
+    assert isinstance(first, int) and agent_mod.run_lock(str(tmp_path)) is False
+    os.close(first)
+    assert agent_mod.run_lock(str(tmp_path / "missing")) is None  # no state dir: run anyway
+
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps({"server_url": "http://127.0.0.1:9", "allow_insecure_http": True}))
+    monkeypatch.setattr(agent_mod, "run_lock", lambda: False)
+    monkeypatch.setattr(agent_mod, "collect", lambda cfg: pytest.fail("collected while another run held the lock"))
+    assert agent_mod.main(["--config", str(cfg), "--dry-run"]) == 0
 
 
 def test_purls_map_to_osv_names():
