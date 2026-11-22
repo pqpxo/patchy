@@ -2,7 +2,7 @@
 from collections import Counter
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .db import utcnow
 from .models import Component, ComponentObservation, ComponentPath, ScanRun
@@ -29,8 +29,8 @@ def sync_components(db: Session, run: ScanRun, scope: str, items: list[dict], *,
 
     q = select(Component).where(Component.source == source)
     q = q.where(Component.host_id == host_id) if host_id else q.where(Component.repository_id == repository_id)
-    existing = {c.dedupe_key: c for c in db.scalars(q)}
-    ids = []
+    existing = {c.dedupe_key: c for c in db.scalars(q.options(selectinload(Component.paths)))}
+    seen = []
     for key, item in keyed.items():
         c = existing.get(key)
         if c is None:
@@ -43,14 +43,15 @@ def sync_components(db: Session, run: ScanRun, scope: str, items: list[dict], *,
         c.missing_since = None
         c.last_scan_run_id = run.id
         c.last_scanned_at = now
-        db.flush()
         known = {p.path for p in c.paths}
         for path, kind in item.get("paths") or []:
             if path and path not in known:
                 c.paths.append(ComponentPath(path=path[:1024], kind=kind))
                 known.add(path)
-        db.add(ComponentObservation(component_id=c.id, scan_run_id=run.id, version=c.version))
-        ids.append(c.id)
+        seen.append(c)
+    db.flush()  # gives new components their ids
+    db.add_all(ComponentObservation(component_id=c.id, scan_run_id=run.id, version=c.version) for c in seen)
+    ids = [c.id for c in seen]
     for key, c in existing.items():
         if key not in keyed and c.missing_since is None:
             c.missing_since = now
