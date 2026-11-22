@@ -78,9 +78,12 @@ def collect(db: Session, cfg: dict) -> list[Item]:
         if (c.host and c.host.is_demo) or (c.repository and c.repository.is_demo) or c.missing_since:
             continue
         # KEV alerts include possible matches (NVD product ranges): an exploited flaw is worth a look either way.
-        if a.kev and f.match_status in ("confirmed", "possible"):
+        # A critical KEV finding still goes out as critical when only KEV alerts are off.
+        is_kev = a.kev and f.match_status in ("confirmed", "possible")
+        is_critical = a.severity == "critical" and f.match_status == "confirmed"
+        if is_kev and (cfg["kev"] or not is_critical):
             kind = "kev"
-        elif a.severity == "critical" and f.match_status == "confirmed":
+        elif is_critical:
             kind = "critical"
         else:
             continue
@@ -89,13 +92,14 @@ def collect(db: Session, cfg: dict) -> list[Item]:
         what = f"{c.name} {c.version}" if c.version else c.name
         items.append(Item(f"finding:{f.id}", kind, f"{name} in {what} on {_where(c)}", f"/vulnerabilities/{f.id}"))
 
-    if cfg["silent_hours"]:
-        cutoff = utcnow() - timedelta(hours=cfg["silent_hours"])
-        for h in db.scalars(select(Host).join(Agent, Agent.host_id == Host.id).where(
-                Agent.revoked_at.is_(None), Host.is_demo.is_(False), Host.last_report_at < cutoff)):
-            hours = int((utcnow() - h.last_report_at).total_seconds() // 3600)
-            items.append(Item(f"silent:{h.id}:{h.last_report_at.isoformat()}", "silent",
-                              f"{h.name} last reported {hours} hours ago", f"/hosts/{h.id}"))
+    # While this alert is off, still collect at the shortest choice so outages are marked seen and not
+    # replayed when it's turned back on (run() doesn't send silent items when silent_hours is 0).
+    cutoff = utcnow() - timedelta(hours=cfg["silent_hours"] or min(h for h in SILENT_CHOICES if h))
+    for h in db.scalars(select(Host).join(Agent, Agent.host_id == Host.id).where(
+            Agent.revoked_at.is_(None), Host.is_demo.is_(False), Host.last_report_at < cutoff)):
+        hours = int((utcnow() - h.last_report_at).total_seconds() // 3600)
+        items.append(Item(f"silent:{h.id}:{h.last_report_at.isoformat()}", "silent",
+                          f"{h.name} last reported {hours} hours ago", f"/hosts/{h.id}"))
 
     def eol_item(key, eol, what, path):
         when = "reached end of life" if eol["state"] == "eol" else f"reaches end of life on {eol['eol_from']}"
