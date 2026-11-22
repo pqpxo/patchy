@@ -48,6 +48,18 @@ class Settings:
         self.repo_max_total_bytes = _int("REPO_MAX_TOTAL_BYTES", 50 * 1024 * 1024)
         self.repo_max_manifests = _int("REPO_MAX_MANIFESTS", 300)
         self.repo_scan_timeout = _int("REPO_SCAN_TIMEOUT_SECONDS", 180)
+        # Alerts. Destinations are secrets (a webhook URL is as good as a password), so env only.
+        self.patchy_url = os.getenv("PATCHY_URL", "").strip()  # links in alerts, eg https://patchy.example.lan
+        self.alert_webhook_url = os.getenv("ALERT_WEBHOOK_URL", "").strip()
+        self.alert_ntfy_url = os.getenv("ALERT_NTFY_URL", "").strip()
+        self.alert_ntfy_token = os.getenv("ALERT_NTFY_TOKEN", "").strip()
+        self.smtp_host = os.getenv("SMTP_HOST", "").strip()
+        self.smtp_port = _int("SMTP_PORT", 587)
+        self.smtp_starttls = _bool("SMTP_STARTTLS", True)
+        self.smtp_user = os.getenv("SMTP_USER", "").strip()
+        self.smtp_password = os.getenv("SMTP_PASSWORD", "")
+        self.smtp_from = os.getenv("SMTP_FROM", "").strip()
+        self.alert_email_to = os.getenv("ALERT_EMAIL_TO", "").strip()
         # Agent
         self.agent_max_report_bytes = _int("AGENT_MAX_REPORT_BYTES", 32 * 1024 * 1024)
 
