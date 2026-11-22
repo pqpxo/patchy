@@ -2,6 +2,13 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.3.1 - 2026-11-22
+
+### Fixed
+- Agent 1.3.1: installing or updating no longer waits for the first report, which can take minutes while Syft reads container images. It now runs in the background and the installer says how to follow it.
+- Agent 1.3.1: each image's package list is saved as soon as it is scanned, and new scans stop starting after 10 minutes. Before, a host with several large images could hit systemd's 30 minute limit before anything was saved, start again every run and never send a report.
+- Agent 1.3.1: the journal shows which image is being scanned. Updating the agent no longer throws away cached image scans.
+
 ## 1.3.0 - 2026-11-22
 
 ### Added

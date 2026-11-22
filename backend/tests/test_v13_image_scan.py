@@ -36,12 +36,29 @@ def test_images_are_scanned_once_then_cached(monkeypatch, tmp_path):
     out = agent_mod.image_packages(containers, errors, state_dir=str(tmp_path))
     assert [i["image"] for i in out] == ["nginx:1.27", "redis:7"] and calls == ["sha256:aa", "sha256:bb"]
     assert agent_mod.image_packages(containers, errors, state_dir=str(tmp_path)) == out and len(calls) == 2
-    monkeypatch.setattr(agent_mod, "MAX_NEW_IMAGE_SCANS", 1)
+    monkeypatch.setattr(agent_mod, "IMAGE_SCAN_SECONDS", 0)  # out of time: cached images still sent, new ones wait
     more = containers + [{"image": "a:1", "image_id": "sha256:cc"}, {"image": "b:1", "image_id": "sha256:dd"}]
-    assert len(agent_mod.image_packages(more, errors, state_dir=str(tmp_path))) == 3
-    assert errors == ["syft: 1 image(s) left for the next report"]
+    assert agent_mod.image_packages(more, errors, state_dir=str(tmp_path)) == out and len(calls) == 2
+    assert errors == ["syft: 2 image(s) left for the next report"]
     monkeypatch.setattr(agent_mod, "find_syft", lambda: None)
     assert agent_mod.image_packages(more, [], state_dir=str(tmp_path)) == []
+
+
+def test_each_scan_is_cached_at_once_so_a_stopped_run_keeps_its_work(monkeypatch, tmp_path):
+    def scan(exe, image_id):
+        if image_id == "sha256:bb":
+            raise KeyboardInterrupt  # stands in for systemd stopping the run mid-way
+        return {"distro": {}, "packages": []}
+    monkeypatch.setattr(agent_mod, "find_syft", lambda: "/opt/syft")
+    monkeypatch.setattr(agent_mod, "syft_scan", scan)
+    containers = [{"image": "a:1", "image_id": "sha256:aa"}, {"image": "b:1", "image_id": "sha256:bb"}]
+    try:
+        agent_mod.image_packages(containers, [], state_dir=str(tmp_path))
+    except KeyboardInterrupt:
+        pass
+    monkeypatch.setattr(agent_mod, "syft_scan", lambda exe, image_id: {"distro": {}, "packages": []})
+    monkeypatch.setattr(agent_mod, "IMAGE_SCAN_SECONDS", 0)
+    assert [i["image"] for i in agent_mod.image_packages(containers, [], state_dir=str(tmp_path))] == ["a:1"]
 
 
 def test_purls_map_to_osv_names():
