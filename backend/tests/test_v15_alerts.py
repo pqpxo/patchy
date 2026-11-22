@@ -49,6 +49,11 @@ def test_failed_sends_retry_and_switched_off_events_dont_replay(db, host, monkey
     alerts.save(db, {"critical": True})
     assert alerts.run(db) == 0  # skipped while off, not replayed when turned back on
 
+    alerts.save(db, {"kev": False})  # a critical KEV finding still goes out as critical
+    _finding(db, host, "GHSA-crit-kev", severity="critical", kev=True)
+    assert [i.kind for i in alerts.collect(db, alerts.config(db)) if i.text.startswith("CVE-2026-0001 (GHSA-crit-kev)")] == ["critical"]
+    assert alerts.run(db) == 1
+
 
 def test_host_that_stops_reporting_alerts(db, host, monkeypatch):
     monkeypatch.setattr(settings, "alert_ntfy_url", "http://ntfy.invalid/topic")
@@ -60,6 +65,13 @@ def test_host_that_stops_reporting_alerts(db, host, monkeypatch):
     items = [i for i in alerts.collect(db, alerts.config(db)) if i.kind == "silent"]
     assert [i.text for i in items] == ["pi4 last reported 30 hours ago"]
     assert alerts.collect(db, {**alerts.config(db), "silent_hours": 48}) == []
+
+    sent = []
+    monkeypatch.setattr(alerts, "send", lambda title, message, items: sent.append(title) or {"ntfy": None})
+    alerts.save(db, {"silent_hours": 0})
+    assert alerts.run(db) == 0 and sent == []  # an outage while the alert is off is recorded, not sent
+    alerts.save(db, {"silent_hours": 24})
+    assert alerts.run(db) == 0 and sent == []  # and not replayed when it's turned back on
 
 
 def test_send_keeps_secrets_out_of_errors(monkeypatch):
