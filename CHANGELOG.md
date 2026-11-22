@@ -2,6 +2,12 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.3.3 - 2026-11-22
+
+### Fixed
+- Agent 1.3.2 waits up to 5 minutes for Patchy to store a report, instead of the 30 second check-in timeout, so a large report with container image packages isn't abandoned. A failed send logs one line instead of a traceback.
+- The agent service runs at low CPU and disk priority, and memory above 1 GB is reclaimed from it first, so scanning many container images doesn't compete with the host's own services. Re-run the update on each host to apply it.
+
 ## 1.3.2 - 2026-11-22
 
 ### Fixed
