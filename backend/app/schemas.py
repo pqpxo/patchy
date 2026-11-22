@@ -83,6 +83,10 @@ class AssetIn(In):
     _v_ip = field_validator("host_ip", "listen_ip")(lambda cls, v: _ip(v))
 
 
+class ImageScanIn(In):
+    image_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+
 class HostIn(In):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255,
                                            pattern=r"^[A-Za-z0-9._-]+$")]
@@ -240,6 +244,7 @@ class HostOut(Out):
     agent: AgentOut | None = None
     agent_outdated: bool = False
     rescan_requested_at: datetime | None = None
+    image_scan_requests: list[str] | None = None
     component_count: int = 0
     open_findings: int = 0
     exposure: dict[str, int] | None = None

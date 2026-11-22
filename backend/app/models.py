@@ -68,6 +68,7 @@ class Host(Base):
     containers: Mapped[list | None] = mapped_column(JSON)  # latest agent report: Docker containers
     apps: Mapped[list | None] = mapped_column(JSON)  # latest agent report: software added to the base OS
     rescan_requested_at: Mapped[datetime | None] = mapped_column(TS)  # cleared when the next report arrives
+    image_scan_requests: Mapped[list | None] = mapped_column(JSON)  # image IDs to scan; cleared as the agent answers
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
     agent: Mapped["Agent | None"] = relationship(back_populates="host", cascade="all, delete-orphan")
 

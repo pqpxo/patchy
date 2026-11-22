@@ -1,4 +1,5 @@
 """Assets (components), hosts + agent credentials, repositories, scans."""
+import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -11,7 +12,7 @@ from .. import repo_scanner, vulns
 from ..db import get_db, utcnow
 from ..models import (Advisory, Agent, Component, ComponentObservation, ComponentPath, Finding, Host, HostPath,
                       HostService, Repository, ScanRun, User)
-from ..schemas import (AgentOut, AgentTokenOut, AssetIn, ComponentDetail, ComponentOut, HostIn, HostOut,
+from ..schemas import (AgentOut, AgentTokenOut, AssetIn, ComponentDetail, ComponentOut, HostIn, HostOut, ImageScanIn,
                        HostPathOut, ObservationOut, Page, RepoIn, RepoOut, ScanRunOut, ServiceOut)
 from ..security import audit, client_ip, new_agent_token, require_user, sha256
 from ..worker import enqueue
@@ -281,6 +282,30 @@ def _image_summary(db: Session, host_id: int) -> dict[str, dict]:
             if m.SEVERITY_ORDER.get(sev, 0) > m.SEVERITY_ORDER.get(s["worst"], -1):
                 s["worst"] = sev
     return out
+
+
+def _agent_at_least(version: str | None, major: int, minor: int) -> bool:
+    nums = [int(n) for n in re.findall(r"\d+", version or "")[:2]]
+    return len(nums) == 2 and tuple(nums) >= (major, minor)
+
+
+@router.post("/hosts/{host_id}/images/scan", response_model=HostOut)
+def scan_image(host_id: int, body: ImageScanIn, request: Request, db: Session = Depends(get_db),
+               user: User = Depends(require_user)):
+    """Ask the agent to list the packages in one container image at its next 5-minute check-in."""
+    h = _404(db.get(Host, host_id))
+    if not h.agent or h.agent.revoked_at:
+        raise HTTPException(409, "This host has no active agent.")
+    if not _agent_at_least(h.agent.agent_version, 1, 4):
+        raise HTTPException(409, "Update the agent to 1.4 or later to scan images on request.")
+    ref = next((c.get("image") for c in h.containers or [] if c.get("image_id") == body.image_id), None)
+    if ref is None:
+        raise HTTPException(404, "That image isn't used by a container on this host.")
+    if body.image_id not in (h.image_scan_requests or []):
+        h.image_scan_requests = [*(h.image_scan_requests or []), body.image_id][-100:]
+    audit(db, user.username, "host.image_scan", "host", h.id, {"image": ref}, client_ip(request))
+    db.commit()
+    return _host_out(db, h, _comp_counts(db, Component.host_id, [h.id]), _open_counts(db, Component.host_id, [h.id]))
 
 
 @router.post("/hosts/{host_id}/rescan", response_model=HostOut)

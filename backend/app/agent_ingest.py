@@ -138,6 +138,7 @@ class Report(_M):
     containers: list[Container] = Field(default_factory=list, max_length=1000)
     apps: list[App] = Field(default_factory=list, max_length=5000)
     images: list[ImageScan] = Field(default_factory=list, max_length=100)
+    image_requests_done: list[S] | None = Field(default=None, max_length=200)  # agents before 1.4 don't send it
     paths: list[PathListing] = Field(default_factory=list, max_length=20)
     errors: list[Annotated[str, StringConstraints(max_length=500)]] = Field(default_factory=list, max_length=100)
 
@@ -295,6 +296,9 @@ def ingest(db: Session, agent: Agent, report: Report, ip: str) -> tuple[ScanRun,
     host.containers = containers
     host.apps = [a.model_dump() for a in report.apps]
     host.rescan_requested_at = None
+    if host.image_scan_requests:  # an agent too old to answer scan requests clears them all, so they can't loop
+        done = set(report.image_requests_done) if report.image_requests_done is not None else set(host.image_scan_requests)
+        host.image_scan_requests = [i for i in host.image_scan_requests if i not in done] or None
 
     agent.last_seen_at, agent.last_ip, agent.agent_version = now, ip, report.agent_version
     run.status = "partial" if report.errors else "succeeded"

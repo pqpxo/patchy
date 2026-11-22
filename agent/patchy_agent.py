@@ -48,7 +48,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-VERSION = "1.3.3"
+VERSION = "1.4.0"
 DEFAULT_CONFIG = "/etc/patchy-agent/config.json"
 SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_OUTPUT = 64 * 1024
@@ -91,7 +91,7 @@ DEFAULTS = {
     "allow_insecure_http": False,
     "timeout_seconds": 30,
     "collect": {"packages": True, "apps": True, "listening_ports": True, "services": True, "docker_images": False,
-                "image_packages": True, "version_probes": DEFAULT_PROBES},
+                "image_packages": True, "image_scan": "manual", "version_probes": DEFAULT_PROBES},
     "app_dirs": [],
 }
 
@@ -374,7 +374,8 @@ def syft_packages(doc):
 def syft_scan(exe, image_id, timeout=900):
     """Packages in one local image. Syft reads the image through the Docker socket; nothing is pulled."""
     env = {"PATH": SAFE_PATH, "LC_ALL": "C", "HOME": "/var/tmp", "TMPDIR": "/var/tmp",
-           "SYFT_CHECK_FOR_APP_UPDATE": "false", "SYFT_FILE_METADATA_SELECTION": "none"}
+           "SYFT_CHECK_FOR_APP_UPDATE": "false", "SYFT_FILE_METADATA_SELECTION": "none",
+           "GOMAXPROCS": "1"}  # one CPU core: slower, but it leaves the rest of the host alone
     p = subprocess.run([exe, "scan", f"docker:{image_id}", "-o", "syft-json", "-q"], stdin=subprocess.DEVNULL,
                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout, check=False, env=env)
     if p.returncode != 0:
@@ -384,13 +385,14 @@ def syft_scan(exe, image_id, timeout=900):
     return {"distro": {"id": d.get("id"), "version_id": d.get("versionID")}, "packages": syft_packages(doc)}
 
 
-def image_packages(containers, errors, state_dir=STATE_DIR):
-    exe = find_syft()
+def image_packages(containers, errors, state_dir=STATE_DIR, requested=(), auto=False, deferred=None):
+    """Package lists for images in use: cached ones always, new ones only when requested from the host page
+    (or every new image with "image_scan": "auto"). Requested IDs left over by the time limit go in `deferred`."""
     images = {}
     for c in containers:
         if c.get("image_id"):
             images.setdefault(c["image_id"], c["image"])
-    if not exe or not images:
+    if not images:
         return []
     path = os.path.join(state_dir, IMAGE_CACHE)
     try:
@@ -408,11 +410,17 @@ def image_packages(containers, errors, state_dir=STATE_DIR):
         except OSError:
             pass
 
-    todo = sorted((ref, i) for i, ref in images.items() if i not in keep)
+    todo = sorted((ref, i) for i, ref in images.items() if i not in keep and (auto or i in requested))
+    exe = find_syft() if todo else None
+    if todo and not exe:
+        errors.append("syft: not installed, so images can't be scanned. Re-run the agent installer to add it.")
+        todo = []
     stop = time.monotonic() + IMAGE_SCAN_SECONDS
     for n, (ref, image_id) in enumerate(todo, 1):
         if time.monotonic() >= stop:
             errors.append(f"syft: {len(todo) - n + 1} image(s) left for the next report")
+            if deferred is not None:
+                deferred.extend(i for _, i in todo[n - 1:])
             break
         print(f"Scanning image {n} of {len(todo)}: {ref}", file=sys.stderr, flush=True)
         try:
@@ -553,18 +561,21 @@ def list_dir(root, max_depth, max_files):
     return entries, truncated
 
 
-def collect(cfg):
-    errors, col, meta = [], cfg["collect"], {}
+def collect(cfg, requested=()):
+    """requested: image IDs someone asked to scan from the host page (handed over by the poll)."""
+    errors, col, meta, deferred = [], cfg["collect"], {}, []
+    requested = set(requested)
     report = {"schema": 1, "report_id": str(uuid.uuid4()), "agent_version": VERSION, "generated_at": now_iso(),
               "host": host_info(), "packages": [], "apps": [], "probes": [], "listening": [], "services": [],
-              "containers": [], "images": [], "paths": [], "errors": errors}
+              "containers": [], "images": [], "paths": [], "errors": errors, "image_requests_done": []}
+    scan_images = bool(col.get("docker_images") and col.get("image_packages", True))
     steps = [("packages", col.get("packages"), lambda: packages(errors, meta)),
              ("apps", col.get("apps"), lambda: added_apps(report["packages"], meta)),
              ("listening", col.get("listening_ports"), listening),
              ("services", col.get("services"), services),
              ("containers", col.get("docker_images"), lambda: docker_containers(errors)),
-             ("images", col.get("docker_images") and col.get("image_packages", True),
-              lambda: image_packages(report["containers"], errors)),
+             ("images", scan_images, lambda: image_packages(report["containers"], errors, requested=requested,
+                                                           auto=col.get("image_scan") == "auto", deferred=deferred)),
              ("probes", bool(col.get("version_probes")), lambda: probes(col.get("version_probes") or [], errors))]
     for key, enabled, fn in steps:
         if enabled:
@@ -580,6 +591,10 @@ def collect(cfg):
             continue
         entries, truncated = list_dir(root, d.get("max_depth", 3), d.get("max_files", 1000))
         report["paths"].append({"root": root, "entries": entries, "truncated": truncated})
+    if requested:  # answered, even when it couldn't be done (the reason is in errors), so it is never asked again
+        if not scan_images:
+            errors.append("syft: image scanning is turned off in the agent config")
+        report["image_requests_done"] = sorted(requested - set(deferred))
     return report
 
 
@@ -610,6 +625,7 @@ def sample_report():
                     "packages": [{"type": "deb", "name": "zlib1g", "version": "1:1.2.13.dfsg-1", "source_name": "zlib",
                                   "source_version": None},
                                  {"type": "npm", "name": "lodash", "version": "4.17.20", "purl": "pkg:npm/lodash@4.17.20"}]}],
+        "image_requests_done": [],
         "paths": [{"root": "/srv/sample-app", "truncated": False,
                                      "entries": [{"path": "/srv/sample-app/app.py", "type": "file"}]}],
         "errors": ["SAMPLE REPORT: synthetic data generated with --sample, not read from a real host."],
@@ -692,15 +708,17 @@ def main(argv=None):
         code, body = request(cfg, "GET", "/api/agent/ping")
         print(f"HTTP {code}: {body}")
         return 0 if code == 200 else 1
+    requested = []
     if a.poll:
         code, body = request(cfg, "GET", "/api/agent/poll")
         if code != 200 or not body.get("report"):  # nothing wanted, or a server too old to ask
             return 0
+        requested = [i for i in body.get("scan_images") or [] if isinstance(i, str)][:100]
     lock = None if a.sample else run_lock()  # released when the process exits
     if lock is False:
         print("Another report is already being collected; it will cover this one, so this run stops.", file=sys.stderr)
         return 0
-    report = sample_report() if a.sample else collect(cfg)
+    report = sample_report() if a.sample else collect(cfg, requested)
     if a.dry_run:
         print(json.dumps(report, indent=2))
         return 0
