@@ -30,12 +30,12 @@ def test_rescan_is_polled_once_then_cleared_by_the_report(auth_client, client, h
     assert auth_client.post(f"/api/hosts/{host.id}/rescan").status_code == 409  # no agent yet
     token = _enroll(auth_client, host.id)
     h = {"Authorization": f"Bearer {token}"}
-    assert client.get("/api/agent/poll", headers=h).json() == {"report": False}
+    assert client.get("/api/agent/poll", headers=h).json()["report"] is False
     r = auth_client.post(f"/api/hosts/{host.id}/rescan")
     assert r.status_code == 200 and r.json()["rescan_requested_at"]
-    assert client.get("/api/agent/poll", headers=h).json() == {"report": True}
+    assert client.get("/api/agent/poll", headers=h).json()["report"] is True
     assert client.post("/api/agent/report", json=_report(), headers=h).status_code == 200
-    assert client.get("/api/agent/poll", headers=h).json() == {"report": False}
+    assert client.get("/api/agent/poll", headers=h).json()["report"] is False
     assert client.get("/api/agent/poll", headers={"Authorization": "Bearer pa_1_nope"}).status_code == 401
 
 

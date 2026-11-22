@@ -40,15 +40,15 @@ def test_images_are_scanned_once_then_cached(monkeypatch, tmp_path):
     containers = [{"image": "nginx:1.27", "image_id": "sha256:aa"}, {"image": "nginx:1.27", "image_id": "sha256:aa"},
                   {"image": "redis:7", "image_id": "sha256:bb"}, {"image": "old", "image_id": None}]
     errors = []
-    out = agent_mod.image_packages(containers, errors, state_dir=str(tmp_path))
+    out = agent_mod.image_packages(containers, errors, state_dir=str(tmp_path), auto=True)
     assert [i["image"] for i in out] == ["nginx:1.27", "redis:7"] and calls == ["sha256:aa", "sha256:bb"]
-    assert agent_mod.image_packages(containers, errors, state_dir=str(tmp_path)) == out and len(calls) == 2
+    assert agent_mod.image_packages(containers, errors, state_dir=str(tmp_path), auto=True) == out and len(calls) == 2
     monkeypatch.setattr(agent_mod, "IMAGE_SCAN_SECONDS", 0)  # out of time: cached images still sent, new ones wait
     more = containers + [{"image": "a:1", "image_id": "sha256:cc"}, {"image": "b:1", "image_id": "sha256:dd"}]
-    assert agent_mod.image_packages(more, errors, state_dir=str(tmp_path)) == out and len(calls) == 2
+    assert agent_mod.image_packages(more, errors, state_dir=str(tmp_path), auto=True) == out and len(calls) == 2
     assert errors == ["syft: 2 image(s) left for the next report"]
     monkeypatch.setattr(agent_mod, "find_syft", lambda: None)
-    assert agent_mod.image_packages(more, [], state_dir=str(tmp_path)) == []
+    assert agent_mod.image_packages(more, [], state_dir=str(tmp_path), auto=True) == out  # no Syft: cached lists still sent
 
 
 def test_each_scan_is_cached_at_once_so_a_stopped_run_keeps_its_work(monkeypatch, tmp_path):
@@ -60,12 +60,12 @@ def test_each_scan_is_cached_at_once_so_a_stopped_run_keeps_its_work(monkeypatch
     monkeypatch.setattr(agent_mod, "syft_scan", scan)
     containers = [{"image": "a:1", "image_id": "sha256:aa"}, {"image": "b:1", "image_id": "sha256:bb"}]
     try:
-        agent_mod.image_packages(containers, [], state_dir=str(tmp_path))
+        agent_mod.image_packages(containers, [], state_dir=str(tmp_path), auto=True)
     except KeyboardInterrupt:
         pass
     monkeypatch.setattr(agent_mod, "syft_scan", lambda exe, image_id: {"distro": {}, "packages": []})
     monkeypatch.setattr(agent_mod, "IMAGE_SCAN_SECONDS", 0)
-    assert [i["image"] for i in agent_mod.image_packages(containers, [], state_dir=str(tmp_path))] == ["a:1"]
+    assert [i["image"] for i in agent_mod.image_packages(containers, [], state_dir=str(tmp_path), auto=True)] == ["a:1"]
 
 
 def test_only_one_report_is_collected_at_a_time(monkeypatch, tmp_path):
@@ -134,3 +134,42 @@ def test_image_packages_get_findings_per_image_and_pull_advice(auth_client, clie
     g = next(g for g in plan["groups"] if g["kind"] == "image")
     assert g["command"] == "docker pull nginx:1.27" and g["title"].endswith("container image nginx:1.27")
     assert [f["image"] for f in auth_client.get("/api/findings").json()["items"]] == ["nginx:1.27"]
+
+
+def test_manual_mode_scans_only_requested_images(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(agent_mod, "find_syft", lambda: "/opt/syft")
+    monkeypatch.setattr(agent_mod, "syft_scan", lambda exe, image_id: calls.append(image_id) or {"distro": {}, "packages": []})
+    containers = [{"image": "a:1", "image_id": "sha256:aa"}, {"image": "b:1", "image_id": "sha256:bb"}]
+    assert agent_mod.image_packages(containers, [], state_dir=str(tmp_path)) == [] and calls == []
+    out = agent_mod.image_packages(containers, [], state_dir=str(tmp_path), requested={"sha256:bb", "sha256:not-here"})
+    assert [i["image"] for i in out] == ["b:1"] and calls == ["sha256:bb"]
+    deferred = []  # out of time: the request stays open for the next report
+    monkeypatch.setattr(agent_mod, "IMAGE_SCAN_SECONDS", 0)
+    agent_mod.image_packages(containers, [], state_dir=str(tmp_path), requested={"sha256:aa"}, deferred=deferred)
+    assert deferred == ["sha256:aa"]
+
+
+def test_scan_requests_go_to_the_agent_and_are_cleared_when_answered(auth_client, client, host, db):
+    image_id = "sha256:" + "5a" * 32  # the sample report's nginx:1.27 container
+    token = _enroll(auth_client, host.id)
+    h = {"Authorization": f"Bearer {token}"}
+    old = _report(agent_version="1.3.3")
+    old.pop("image_requests_done")
+    assert client.post("/api/agent/report", json=old, headers=h).status_code == 200
+    r = auth_client.post(f"/api/hosts/{host.id}/images/scan", json={"image_id": image_id})
+    assert r.status_code == 409 and "1.4" in r.json()["detail"]
+    assert client.post("/api/agent/report", json=_report(), headers=h).status_code == 200
+    assert auth_client.post(f"/api/hosts/{host.id}/images/scan", json={"image_id": "sha256:" + "0" * 64}).status_code == 404
+    assert auth_client.post(f"/api/hosts/{host.id}/images/scan", json={"image_id": "nginx; rm -rf /"}).status_code == 422
+    r = auth_client.post(f"/api/hosts/{host.id}/images/scan", json={"image_id": image_id})
+    assert r.status_code == 200 and r.json()["image_scan_requests"] == [image_id]
+    assert client.get("/api/agent/poll", headers=h).json() == {"report": True, "scan_images": [image_id]}
+    assert client.post("/api/agent/report", json=_report(), headers=h).status_code == 200  # not answered: stays
+    assert client.get("/api/agent/poll", headers=h).json()["scan_images"] == [image_id]
+    assert client.post("/api/agent/report", json=_report(image_requests_done=[image_id]), headers=h).status_code == 200
+    assert client.get("/api/agent/poll", headers=h).json() == {"report": False, "scan_images": []}
+    auth_client.post(f"/api/hosts/{host.id}/images/scan", json={"image_id": image_id})
+    old["report_id"] = _report()["report_id"]
+    client.post("/api/agent/report", json=old, headers=h)  # an agent too old to answer clears them, so nothing loops
+    assert client.get("/api/agent/poll", headers=h).json()["report"] is False
