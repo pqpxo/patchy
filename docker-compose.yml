@@ -34,8 +34,8 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   worker:
-    image: patchy:local
-    pull_policy: never  # uses the image the app service builds; never pulled from a registry
+    build: .  # same Dockerfile as app; building it too means `up --build` always recreates the worker
+    pull_policy: build
     restart: unless-stopped
     command: ["python", "-m", "app.worker"]
     env_file: .env

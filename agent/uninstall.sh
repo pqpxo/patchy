@@ -8,6 +8,6 @@ rm -f /etc/systemd/system/patchy-agent.service /etc/systemd/system/patchy-agent.
       /etc/systemd/system/patchy-agent-poll.service /etc/systemd/system/patchy-agent-poll.timer
 rm -rf /etc/systemd/system/patchy-agent.service.d
 systemctl daemon-reload
-rm -rf /usr/local/lib/patchy-agent /etc/patchy-agent
+rm -rf /usr/local/lib/patchy-agent /etc/patchy-agent /var/lib/patchy-agent
 id patchy-agent >/dev/null 2>&1 && userdel patchy-agent || true
 echo "Patchy agent removed. Now revoke its credential in Patchy (Hosts > host > Revoke)."

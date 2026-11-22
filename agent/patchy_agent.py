@@ -11,6 +11,8 @@ What it reads (each part can be switched off in the config):
     (apt's auto-installed marks, the installer's package list or package priority), plus Snap and Flatpak apps
   - Optional: Docker containers (name, image, state, published ports, mount locations; never environment
     variables), read from the Docker socket. Needs docker group membership, which is root-equivalent.
+  - Optional, with containers: the packages inside each container image, listed by Syft if it is installed
+    next to this script (the installer offers a pinned, checksum-verified copy). Cached per image ID.
   - Optional: names (never contents) of files under directories you list, with depth/count limits
 
 What it never reads or sends: file contents, environment variables, keys, passwords, tokens,
@@ -45,7 +47,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 DEFAULT_CONFIG = "/etc/patchy-agent/config.json"
 SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_OUTPUT = 64 * 1024
@@ -88,7 +90,7 @@ DEFAULTS = {
     "allow_insecure_http": False,
     "timeout_seconds": 30,
     "collect": {"packages": True, "apps": True, "listening_ports": True, "services": True, "docker_images": False,
-                "version_probes": DEFAULT_PROBES},
+                "image_packages": True, "version_probes": DEFAULT_PROBES},
     "app_dirs": [],
 }
 
@@ -308,11 +310,97 @@ def docker_containers(errors, sock_path=DOCKER_SOCKET):
             if m.get("Destination"):
                 mounts.append({"type": m.get("Type"), "name": m.get("Name"), "source": src,
                                "destination": m["Destination"], "rw": bool(m.get("RW"))})
-        out.append({"name": ((c.get("Names") or ["?"])[0] or "?").lstrip("/"), "image": c.get("Image") or "unknown",
+        out.append({"name": ((c.get("Names") or ["?"])[0] or "?").lstrip("/"), "image": c.get("Image") or "unknown", "image_id": c.get("ImageID"),
                     "state": c.get("State"), "status": c.get("Status"),
                     "version": labels.get("org.opencontainers.image.version"),
                     "compose_project": labels.get("com.docker.compose.project"),
                     "compose_service": labels.get("com.docker.compose.service"), "ports": ports, "mounts": mounts})
+    return out
+
+
+STATE_DIR = "/var/lib/patchy-agent"  # systemd StateDirectory; without it the cache is simply skipped
+IMAGE_CACHE = "image-packages.json"
+MAX_NEW_IMAGE_SCANS = 10  # per run, so one report never takes too long; the rest follow on the next runs
+
+
+def find_syft():
+    """Syft installed next to this script by install.sh, else one on the system PATH."""
+    here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "syft")
+    if os.path.isfile(here) and os.access(here, os.X_OK):
+        return here
+    return shutil.which("syft", path=SAFE_PATH)
+
+
+def syft_packages(doc):
+    """Compact package list from Syft JSON: distro packages keep their source package, others go by purl."""
+    out = []
+    for a in doc.get("artifacts") or []:
+        t, md = a.get("type"), a.get("metadata") or {}
+        if t == "deb":
+            out.append({"type": t, "name": md.get("package") or a.get("name"), "version": md.get("version") or a.get("version"),
+                        "source_name": md.get("source") or None, "source_version": md.get("sourceVersion") or None})
+        elif t == "apk":
+            out.append({"type": t, "name": a.get("name"), "version": a.get("version"),
+                        "source_name": md.get("originPackage") or None})
+        elif t == "rpm":
+            out.append({"type": t, "name": a.get("name"), "version": a.get("version")})
+        elif isinstance(a.get("purl"), str) and a["purl"].startswith("pkg:"):
+            out.append({"type": t, "name": a.get("name"), "version": a.get("version"), "purl": a["purl"][:500]})
+    return [p for p in out if p["name"] and p["version"]][:20000]
+
+
+def syft_scan(exe, image_id, timeout=900):
+    """Packages in one local image. Syft reads the image through the Docker socket; nothing is pulled."""
+    env = {"PATH": SAFE_PATH, "LC_ALL": "C", "HOME": "/var/tmp", "TMPDIR": "/var/tmp",
+           "SYFT_CHECK_FOR_APP_UPDATE": "false", "SYFT_FILE_METADATA_SELECTION": "none"}
+    p = subprocess.run([exe, "scan", f"docker:{image_id}", "-o", "syft-json", "-q"], stdin=subprocess.DEVNULL,
+                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout, check=False, env=env)
+    if p.returncode != 0:
+        return None
+    doc = json.loads(p.stdout)
+    d = doc.get("distro") or {}
+    return {"distro": {"id": d.get("id"), "version_id": d.get("versionID")}, "packages": syft_packages(doc)}
+
+
+def image_packages(containers, errors, state_dir=STATE_DIR):
+    exe = find_syft()
+    images = {}
+    for c in containers:
+        if c.get("image_id"):
+            images.setdefault(c["image_id"], c["image"])
+    if not exe or not images:
+        return []
+    path = os.path.join(state_dir, IMAGE_CACHE)
+    try:
+        cache = json.loads(read_text(path))
+        cache = cache.get("images", {}) if cache.get("agent") == VERSION else {}
+    except (OSError, ValueError, AttributeError):
+        cache = {}
+    out, keep, scans = [], {}, 0
+    for image_id, ref in sorted(images.items(), key=lambda kv: kv[1]):
+        entry = cache.get(image_id)
+        if entry is None:
+            if scans >= MAX_NEW_IMAGE_SCANS:
+                continue
+            scans += 1
+            try:
+                entry = syft_scan(exe, image_id)
+            except (OSError, subprocess.SubprocessError, ValueError) as e:
+                errors.append(f"syft: {ref}: {type(e).__name__}")
+                continue
+            if entry is None:
+                errors.append(f"syft: could not read image {ref}")
+                continue
+        keep[image_id] = entry
+        out.append({"image_id": image_id, "image": ref, **entry})
+    if len(images) > len(keep) and scans >= MAX_NEW_IMAGE_SCANS:
+        errors.append(f"syft: {len(images) - len(keep)} image(s) left for the next report")
+    try:  # only images still in use are kept, so the cache never grows past the host's images
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            json.dump({"agent": VERSION, "images": keep}, f)
+        os.replace(path + ".tmp", path)
+    except OSError:
+        pass
     return out
 
 
@@ -444,12 +532,14 @@ def collect(cfg):
     errors, col, meta = [], cfg["collect"], {}
     report = {"schema": 1, "report_id": str(uuid.uuid4()), "agent_version": VERSION, "generated_at": now_iso(),
               "host": host_info(), "packages": [], "apps": [], "probes": [], "listening": [], "services": [],
-              "containers": [], "paths": [], "errors": errors}
+              "containers": [], "images": [], "paths": [], "errors": errors}
     steps = [("packages", col.get("packages"), lambda: packages(errors, meta)),
              ("apps", col.get("apps"), lambda: added_apps(report["packages"], meta)),
              ("listening", col.get("listening_ports"), listening),
              ("services", col.get("services"), services),
              ("containers", col.get("docker_images"), lambda: docker_containers(errors)),
+             ("images", col.get("docker_images") and col.get("image_packages", True),
+              lambda: image_packages(report["containers"], errors)),
              ("probes", bool(col.get("version_probes")), lambda: probes(col.get("version_probes") or [], errors))]
     for key, enabled, fn in steps:
         if enabled:
@@ -486,10 +576,15 @@ def sample_report():
                       {"protocol": "tcp", "ip": "0.0.0.0", "port": 22, "process": None}],
         "services": [{"unit": "nginx.service"}, {"unit": "ssh.service"}],
         "apps": [{"manager": "dpkg", "name": "nginx", "version": "1.22.1-9"}],
-        "containers": [{"name": "sample-web", "image": "nginx:1.27", "state": "running", "status": "Up 2 hours",
+        "containers": [{"name": "sample-web", "image": "nginx:1.27", "image_id": "sha256:" + "5a" * 32,
+                        "state": "running", "status": "Up 2 hours",
                         "ports": [{"ip": "0.0.0.0", "private": 80, "public": 8080, "type": "tcp"}],
                         "mounts": [{"type": "bind", "source": "/srv/sample-app/html", "destination": "/usr/share/nginx/html",
                                     "rw": False}]}],
+        "images": [{"image_id": "sha256:" + "5a" * 32, "image": "nginx:1.27", "distro": {"id": "debian", "version_id": "12"},
+                    "packages": [{"type": "deb", "name": "zlib1g", "version": "1:1.2.13.dfsg-1", "source_name": "zlib",
+                                  "source_version": None},
+                                 {"type": "npm", "name": "lodash", "version": "4.17.20", "purl": "pkg:npm/lodash@4.17.20"}]}],
         "paths": [{"root": "/srv/sample-app", "truncated": False,
                                      "entries": [{"path": "/srv/sample-app/app.py", "type": "file"}]}],
         "errors": ["SAMPLE REPORT: synthetic data generated with --sample, not read from a real host."],

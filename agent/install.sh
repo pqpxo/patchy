@@ -10,6 +10,31 @@ LIB=/usr/local/lib/patchy-agent
 ETC=/etc/patchy-agent
 USER_NAME=patchy-agent
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# Syft lists the packages inside container images. Pinned release and its published SHA-256 sums.
+SYFT_VERSION=1.56.0
+SYFT_SHA_amd64=1c2493cfcf52d3367d6cb25780d9190c111c2219c34c820574c43e8bae15c528
+SYFT_SHA_arm64=ace61b9397ae28189c674ae332d67a8074dafd71e87724dfb8b22412d8253bb5
+
+install_syft() {
+  case "$(uname -m)" in
+    x86_64|amd64) ARCH=amd64; SUM=$SYFT_SHA_amd64;;
+    aarch64|arm64) ARCH=arm64; SUM=$SYFT_SHA_arm64;;
+    *) echo "No Syft build for $(uname -m); container images won't be scanned." >&2; return 0;;
+  esac
+  for c in curl sha256sum tar; do command -v "$c" >/dev/null || { echo "Syft needs $c; skipped." >&2; return 0; }; done
+  TMP="$(mktemp -d)"
+  F="syft_${SYFT_VERSION}_linux_${ARCH}.tar.gz"
+  if curl -fsSL -o "$TMP/$F" "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/$F" \
+      && (cd "$TMP" && echo "$SUM  $F" | sha256sum -c - >/dev/null 2>&1) \
+      && tar -xzf "$TMP/$F" -C "$TMP" syft; then
+    install -m 0755 "$TMP/syft" "$LIB/syft"
+    echo "$SYFT_VERSION" > "$LIB/syft.version"
+    echo "Installed Syft $SYFT_VERSION (checksum verified)."
+  else
+    echo "Syft download or checksum check failed; container images won't be scanned." >&2
+  fi
+  rm -rf "$TMP"
+}
 
 [ "$(id -u)" -eq 0 ] || { echo "Run as root (sudo)." >&2; exit 1; }
 command -v python3 >/dev/null || { echo "python3 is required." >&2; exit 1; }
@@ -50,7 +75,19 @@ if [ ! -s "$ETC/token" ]; then
   chown root:"$USER_NAME" "$ETC/token"; chmod 0640 "$ETC/token"
 fi
 
-HARDENING="NoNewPrivileges=yes
+# Containers on: offer Syft once, and keep an accepted copy on the pinned version.
+if grep -q '"docker_images": true' "$ETC/config.json" 2>/dev/null; then
+  if [ -x "$LIB/syft" ]; then
+    [ "$(cat "$LIB/syft.version" 2>/dev/null)" = "$SYFT_VERSION" ] || install_syft
+  elif [ ! -f "$LIB/syft.declined" ]; then
+    printf "Scan container images for vulnerable packages? Downloads Syft %s (Apache-2.0, about 25 MB) from GitHub and checks its SHA-256. [y/N] " "$SYFT_VERSION"
+    read -r ANSWER || ANSWER=""
+    case "$ANSWER" in [yY]*) install_syft;; *) touch "$LIB/syft.declined";; esac
+  fi
+fi
+
+HARDENING="StateDirectory=patchy-agent
+NoNewPrivileges=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
@@ -69,7 +106,7 @@ RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 SystemCallArchitectures=native
-TimeoutStartSec=300"
+TimeoutStartSec=1800"
 
 cat > /etc/systemd/system/patchy-agent.service <<EOF
 [Unit]
