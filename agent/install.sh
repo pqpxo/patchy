@@ -106,7 +106,12 @@ RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 SystemCallArchitectures=native
-TimeoutStartSec=1800"
+TimeoutStartSec=1800
+# A background job: low CPU and disk priority, and above 1G the kernel reclaims its memory first (mostly
+# file cache from Syft reading container images) instead of squeezing the host's own services.
+Nice=10
+IOSchedulingPriority=7
+MemoryHigh=1G"
 
 cat > /etc/systemd/system/patchy-agent.service <<EOF
 [Unit]
