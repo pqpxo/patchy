@@ -93,6 +93,13 @@ type ImageSummary = { packages: number; total: number; worst: string | null; kev
 
 const longDate = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
+/** Agents before 1.2 have no 5-minute poll, so they never see a Rescan. Unknown (never reported) counts as able. */
+const ignoresRescan = (v?: string | null) => {
+  if (!v) return false;
+  const [major, minor] = v.split(".").map(Number);
+  return major < 1 || (major === 1 && minor < 2);
+};
+
 function ImageFindings({ s }: { s?: ImageSummary }) {
   if (!s) return <span className="muted" title="No package list for this image yet. Needs Syft on the host; new images are scanned on the next reports.">Not scanned</span>;
   return <>
@@ -308,9 +315,9 @@ export function HostDetailPage({ id }: { id: number }) {
         </>} />
       {h.rescan_requested_at ? (
         <div className="alert info run" role="status" aria-live="polite"><span className="spin" aria-hidden="true" />
-          <span className="grow">Rescan requested <When iso={h.rescan_requested_at} />. {h.agent_outdated
+          <span className="grow">Rescan requested <When iso={h.rescan_requested_at} />. {ignoresRescan(h.agent?.agent_version)
             ? <>This agent version only reports on its 6-hour schedule. Update it from the Agent card, or run <code>sudo systemctl start patchy-agent</code> on the host.</>
-            : "Waiting for the agent, which checks in every 5 minutes."}</span></div>
+            : "Waiting for the agent, which checks in every 5 minutes. Scanning new container images can add several minutes."}</span></div>
       ) : <RunBanner run={data.runs[0]} what="Report" />}
       {h.is_demo && <div className="alert warn">DEMO host with fictional data.</div>}
       <Tabs value={t} onChange={setTab} tabs={[
