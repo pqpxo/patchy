@@ -5,6 +5,7 @@ from datetime import timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
 from sqlalchemy import case, func, select
@@ -287,6 +288,12 @@ async def agent_report(request: Request, db: Session = Depends(get_db)) -> dict:
         body += chunk
         if len(body) > settings.agent_max_report_bytes:
             raise HTTPException(413, "Report too large.")
+    # Big reports (container image packages) take seconds of database work. Off the event loop, so the
+    # single app process keeps answering health checks and the UI meanwhile.
+    return await run_in_threadpool(_store_report, db, agent, bytes(body), ip)
+
+
+def _store_report(db: Session, agent, body: bytes, ip: str) -> dict:
     try:
         report = Report.model_validate(json.loads(body))
     except (ValueError, ValidationError) as e:

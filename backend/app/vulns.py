@@ -313,6 +313,11 @@ def remediation_text(c: Component, adv: Advisory, fixed: list[str], ranges: list
     return "\n".join(lines)
 
 
+def _chunks(items, size: int = 5000) -> list[list]:
+    items = list(items)
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
+
 def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
     """Recompute findings. Auto-resolves findings that no longer match; reopens auto-resolved ones."""
     q = select(Component)
@@ -326,19 +331,28 @@ def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
     comps = db.scalars(q).all()
     pkgs = eol.host_packages(db, [c.host_id for c in comps if c.host_id])
     eol_data = eol.load(db)
+    findings: dict[int, dict[str, Finding]] = {}
+    for part in _chunks(c.id for c in comps):
+        for f in db.scalars(select(Finding).where(Finding.component_id.in_(part))):
+            findings.setdefault(f.component_id, {})[f.advisory_id] = f
+    idents = {c.id: match_identity(c) for c in comps}
+    advisories_for: dict[tuple[str, str], set[str]] = {}
+    for part in _chunks({i[1] for i in idents.values() if i}):
+        for name, eco, adv_id in db.execute(select(AdvisoryPackage.name, AdvisoryPackage.ecosystem,
+                                                   AdvisoryPackage.advisory_id).where(AdvisoryPackage.name.in_(part))):
+            advisories_for.setdefault((name, eco), set()).add(adv_id)
     for c in comps:
         stats["components"] += 1
-        existing = {f.advisory_id: f for f in db.scalars(select(Finding).where(Finding.component_id == c.id))}
+        existing = findings.get(c.id, {})
         matched = {}
-        ident = match_identity(c)
+        ident = idents[c.id]
         if ident and c.missing_since is None:
             eco, name, version = ident
             cached = cache.get((eco, name, version or ""))
             c.vuln_checked_at = cached.queried_at if cached else None
-            adv_ids = db.scalars(select(AdvisoryPackage.advisory_id).where(
-                AdvisoryPackage.name == name,
-                AdvisoryPackage.ecosystem.in_({eco, m.ecosystem_base(eco)}))).all()
-            for adv in db.scalars(select(Advisory).where(Advisory.id.in_(adv_ids), Advisory.withdrawn.is_(None))):
+            adv_ids = advisories_for.get((name, eco), set()) | advisories_for.get((name, m.ecosystem_base(eco)), set())
+            for adv in (db.scalars(select(Advisory).where(Advisory.id.in_(adv_ids), Advisory.withdrawn.is_(None)))
+                        if adv_ids else []):
                 osv_hit = (adv.id in cached.vuln_ids) if (cached and version) else None
                 res = m.evaluate(adv.affected, eco, name, version or c.version_spec,
                                  "exact" if version else c.version_status, osv_hit)

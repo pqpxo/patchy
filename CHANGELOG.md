@@ -2,6 +2,12 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.3.2 - 2026-11-22
+
+### Fixed
+- A large agent report, such as one with container image packages, no longer freezes Patchy while it is stored. The work runs off the web server's event loop, so the UI and health checks keep answering, and the app container no longer turns unhealthy.
+- Storing a report and re-checking its findings now takes a handful of database queries instead of several per package, so a report with thousands of image packages is several times faster.
+
 ## 1.3.1 - 2026-11-22
 
 ### Fixed
