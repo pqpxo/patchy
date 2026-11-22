@@ -32,6 +32,14 @@ if [ ! -f "$ETC/config.json" ]; then
     read -r ANSWER || ANSWER=""
     case "$ANSWER" in [yY]*) sed -i 's#"allow_insecure_http": false#"allow_insecure_http": true#' "$ETC/config.json";; esac;;
   esac
+  if [ -S /var/run/docker.sock ] && getent group docker >/dev/null; then
+    printf "List Docker containers too? This adds %s to the docker group, which is root-equivalent. [y/N] " "$USER_NAME"
+    read -r ANSWER || ANSWER=""
+    case "$ANSWER" in [yY]*)
+      usermod -aG docker "$USER_NAME"
+      sed -i 's#"docker_images": false#"docker_images": true#' "$ETC/config.json";;
+    esac
+  fi
 fi
 
 if [ ! -s "$ETC/token" ]; then
@@ -42,18 +50,7 @@ if [ ! -s "$ETC/token" ]; then
   chown root:"$USER_NAME" "$ETC/token"; chmod 0640 "$ETC/token"
 fi
 
-cat > /etc/systemd/system/patchy-agent.service <<EOF
-[Unit]
-Description=Patchy inventory agent (read-only, outbound report)
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-Type=oneshot
-User=$USER_NAME
-Group=$USER_NAME
-ExecStart=/usr/bin/env python3 $LIB/patchy_agent.py --config $ETC/config.json
-NoNewPrivileges=yes
+HARDENING="NoNewPrivileges=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
@@ -72,7 +69,48 @@ RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 SystemCallArchitectures=native
-TimeoutStartSec=300
+TimeoutStartSec=300"
+
+cat > /etc/systemd/system/patchy-agent.service <<EOF
+[Unit]
+Description=Patchy inventory agent (read-only, outbound report)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=$USER_NAME
+Group=$USER_NAME
+ExecStart=/usr/bin/env python3 $LIB/patchy_agent.py --config $ETC/config.json
+$HARDENING
+EOF
+
+# Asks Patchy every 5 minutes whether Rescan was pressed; sends a normal report only if it was.
+cat > /etc/systemd/system/patchy-agent-poll.service <<EOF
+[Unit]
+Description=Patchy agent rescan check (read-only, outbound)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=$USER_NAME
+Group=$USER_NAME
+ExecStart=/usr/bin/env python3 $LIB/patchy_agent.py --config $ETC/config.json --poll
+$HARDENING
+EOF
+
+cat > /etc/systemd/system/patchy-agent-poll.timer <<EOF
+[Unit]
+Description=Check every 5 minutes whether Patchy wants a fresh report
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+
+[Install]
+WantedBy=timers.target
 EOF
 
 cat > /etc/systemd/system/patchy-agent.timer <<EOF
@@ -90,7 +128,7 @@ WantedBy=timers.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now patchy-agent.timer
+systemctl enable --now patchy-agent.timer patchy-agent-poll.timer
 echo "Checking credential..."
 runuser -u "$USER_NAME" -- python3 "$LIB/patchy_agent.py" --config "$ETC/config.json" --check || {
   echo "Credential check failed. Fix $ETC/config.json or $ETC/token, then: sudo systemctl start patchy-agent" >&2; exit 1; }

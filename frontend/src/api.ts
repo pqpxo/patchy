@@ -102,7 +102,17 @@ export interface Host {
   os_version: string | null; kernel: string | null; arch: string | null; notes: string | null; is_demo: boolean;
   last_report_at: string | null; created_at: string; agent: Agent | null; component_count: number; open_findings: number;
   os_id: string | null; os_eol_state: string | null; os_eol: EolInfo | null; agent_outdated: boolean; exposure: Exposure | null;
+  rescan_requested_at: string | null;
 }
+
+export interface Container {
+  name: string | null; image: string; state: string | null; status: string | null; version: string | null;
+  compose_project: string | null; compose_service: string | null;
+  ports: { ip: string | null; private: number; public: number | null; type: string | null }[];
+  mounts: { type: string | null; name: string | null; source: string | null; destination: string; rw: boolean }[];
+}
+
+export interface AddedApp { manager: "dpkg" | "snap" | "flatpak"; name: string; version: string | null }
 
 export interface ScanRun {
   id: number; kind: string; status: string; repository_id: number | null; host_id: number | null;

@@ -257,7 +257,21 @@ def get_host(host_id: int, db: Session = Depends(get_db), _: User = Depends(requ
                               _open_counts(db, Component.host_id, [h.id])),
             "services": [ServiceOut.model_validate(s) for s in services],
             "paths": [HostPathOut.model_validate(p) for p in paths],
-            "runs": [ScanRunOut.model_validate(r) for r in runs]}
+            "runs": [ScanRunOut.model_validate(r) for r in runs],
+            "containers": h.containers or [], "apps": h.apps or []}
+
+
+@router.post("/hosts/{host_id}/rescan", response_model=HostOut)
+def rescan_host(host_id: int, request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    """Re-check the stored inventory now, and ask the agent for a fresh report at its next poll."""
+    h = _404(db.get(Host, host_id))
+    if not h.agent or h.agent.revoked_at:
+        raise HTTPException(409, "This host has no active agent to rescan.")
+    h.rescan_requested_at = utcnow()
+    vulns.rematch(db, list(db.scalars(select(Component.id).where(Component.host_id == h.id))))
+    audit(db, user.username, "host.rescan", "host", h.id, {}, client_ip(request))
+    db.commit()
+    return _host_out(db, h, _comp_counts(db, Component.host_id, [h.id]), _open_counts(db, Component.host_id, [h.id]))
 
 
 @router.put("/hosts/{host_id}", response_model=HostOut)

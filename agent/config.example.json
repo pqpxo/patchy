@@ -6,6 +6,7 @@
   "timeout_seconds": 30,
   "collect": {
     "packages": true,
+    "apps": true,
     "listening_ports": true,
     "services": true,
     "docker_images": false,
