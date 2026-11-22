@@ -48,7 +48,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 DEFAULT_CONFIG = "/etc/patchy-agent/config.json"
 SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_OUTPUT = 64 * 1024
@@ -638,7 +638,10 @@ def read_token(cfg):
     return token
 
 
-def request(cfg, method, path, body=None):
+REPORT_TIMEOUT = 300  # storing a big report (container image packages) can take Patchy a while; check-ins stay short
+
+
+def request(cfg, method, path, body=None, timeout=None):
     ctx = ssl.create_default_context(cafile=cfg.get("ca_file") or None)
     opener = urllib.request.build_opener(_NoRedirect(), urllib.request.HTTPSHandler(context=ctx))
     data = json.dumps(body).encode() if body is not None else None
@@ -646,7 +649,7 @@ def request(cfg, method, path, body=None):
         "Authorization": f"Bearer {read_token(cfg)}", "Content-Type": "application/json",
         "User-Agent": f"patchy-agent/{VERSION}"})
     try:
-        with opener.open(req, timeout=cfg.get("timeout_seconds", 30)) as r:
+        with opener.open(req, timeout=timeout or cfg.get("timeout_seconds", 30)) as r:
             return r.status, json.loads(r.read(1024 * 1024) or b"{}")
     except urllib.error.HTTPError as e:
         return e.code, {"detail": e.read(2048).decode("utf-8", "replace")}
@@ -679,7 +682,12 @@ def main(argv=None):
     if a.dry_run:
         print(json.dumps(report, indent=2))
         return 0
-    code, body = request(cfg, "POST", "/api/agent/report", report)
+    try:
+        code, body = request(cfg, "POST", "/api/agent/report", report,
+                             timeout=max(cfg.get("timeout_seconds", 30), REPORT_TIMEOUT))
+    except OSError as e:  # URLError, timeouts, refused connections: one clear line instead of a traceback
+        print(f"Could not send the report to Patchy: {getattr(e, 'reason', None) or e}", file=sys.stderr)
+        return 1
     print(f"HTTP {code}: {body}")
     return 0 if code == 200 else 1
 
