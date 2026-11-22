@@ -65,6 +65,9 @@ class Host(Base):
     last_report_at: Mapped[datetime | None] = mapped_column(TS)
     os_eol_state: Mapped[str | None] = mapped_column(String(16))  # eol|eol_soon|supported, None = unknown
     os_eol: Mapped[dict | None] = mapped_column(JSON)
+    containers: Mapped[list | None] = mapped_column(JSON)  # latest agent report: Docker containers
+    apps: Mapped[list | None] = mapped_column(JSON)  # latest agent report: software added to the base OS
+    rescan_requested_at: Mapped[datetime | None] = mapped_column(TS)  # cleared when the next report arrives
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
     agent: Mapped["Agent | None"] = relationship(back_populates="host", cascade="all, delete-orphan")
 

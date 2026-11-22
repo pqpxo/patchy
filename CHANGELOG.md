@@ -2,6 +2,19 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.2.0 - 2026-11-22
+
+### Added
+- Docker containers on the host page: name, image and version, state, published ports, and volume and bind mount locations. The agent reads the Docker API socket; environment variables and labels are never sent. Opt in at install time (it needs the docker group, which is root-equivalent).
+- Added software on the host page: packages someone chose to install on top of the base OS, plus Snap and Flatpak apps. Snap and Flatpak apps also become assets.
+- Rescan button on the host page. It re-checks the host's findings straight away, and agents from 1.2 check in every 5 minutes and send a fresh report when a rescan is waiting. The page shows the request until the report arrives.
+
+### Changed
+- Agent 1.2.0. Hosts on 1.1.0 show the update command on their Agent card; re-running it keeps the token and settings. The installer adds a second timer, `patchy-agent-poll.timer`.
+- A source that failed to refresh now retries after an hour instead of waiting a full schedule.
+- Host page: more space between the agent details and its buttons, and a tidier OS support line.
+- Scans: the # column no longer wraps, Kind and Target get more room and long progress text is clipped.
+
 ## 1.1.1 - 2026-11-21
 
 ### Added
