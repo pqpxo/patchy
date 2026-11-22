@@ -1,4 +1,5 @@
 """v1.3: packages inside container images, listed by Syft on the host and matched like any other package."""
+from app import eol
 from app.agent_ingest import purl_package
 from app.db import utcnow
 from app.models import Advisory, Component, Finding
@@ -67,6 +68,21 @@ def test_purls_map_to_osv_names():
         ("Maven", "org.apache.logging.log4j:log4j-core", "2.14.1")
     assert purl_package("pkg:golang/golang.org/x/net@v0.17.0") == ("Go", "golang.org/x/net", "v0.17.0")
     assert purl_package("pkg:generic/busybox@1.36") is None and purl_package(None) is None
+
+
+def test_packages_inside_images_say_nothing_about_host_binaries(host, db):
+    def comp(name, ctype, **kw):
+        c = Component(name=name, component_type=ctype, source="agent", detection="detected", host_id=host.id,
+                      dedupe_key=f"host:{host.id}|{name}|{ctype}|{kw.get('details')}", **kw)
+        db.add(c)
+        return c
+    comp("nginx", "os_package", ecosystem="Debian:12", details={"image": "nginx:1.27", "binaries": ["nginx"]})
+    comp("openssl", "os_package", ecosystem="Debian:12", details={"binaries": ["openssl", "libssl3"]})
+    probe_nginx, probe_openssl = comp("nginx", "web_server"), comp("openssl", "library")
+    db.flush()
+    pkgs = eol.host_packages(db, [host.id])
+    assert eol.distro_managed(probe_openssl, pkgs)  # installed by the host's own apt
+    assert not eol.distro_managed(probe_nginx, pkgs)  # only an image has it, so it keeps its own checks
 
 
 def test_image_packages_get_findings_per_image_and_pull_advice(auth_client, client, host, db):

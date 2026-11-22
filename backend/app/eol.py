@@ -128,26 +128,30 @@ def keys_for(c: Component) -> list[str]:
     return keys
 
 
-def distro_managed(c: Component, host_packages: dict[int, list[Component]]) -> bool:
+def distro_managed(c: Component, host_packages: dict[int, tuple[set, set]]) -> bool:
     """True when an agent-probed binary comes from a distro package Patchy already checks via OSV."""
-    if c.source != "agent" or c.component_type == "os_package" or not c.host_id:
+    if c.source != "agent" or c.component_type == "os_package" or not c.host_id or (c.details or {}).get("image"):
         return False
-    for p in host_packages.get(c.host_id, []):
-        binaries = set((p.details or {}).get("binaries") or [])
-        if c.name in binaries or p.name == c.name or f"{c.name}-server" in binaries:
-            return True
-    return False
+    names, binaries = host_packages.get(c.host_id, (set(), set()))
+    return c.name in names or f"{c.name}-server" in binaries
 
 
-def host_packages(db: Session, host_ids) -> dict[int, list[Component]]:
-    out: dict[int, list[Component]] = {}
+def host_packages(db: Session, host_ids) -> dict[int, tuple[set, set]]:
+    """{host_id: (package and binary names, binary names)} for OS packages installed on the host itself.
+
+    Packages inside container images are left out: they say nothing about the host's own binaries."""
+    out: dict[int, tuple[set, set]] = {}
     if not host_ids:
         return out
     for p in db.scalars(select(Component).where(Component.host_id.in_(set(host_ids)),
                                                 Component.component_type == "os_package",
                                                 Component.missing_since.is_(None))):
-        if m.supports_osv(p.ecosystem):
-            out.setdefault(p.host_id, []).append(p)
+        if m.supports_osv(p.ecosystem) and not (p.details or {}).get("image"):
+            names, binaries = out.setdefault(p.host_id, (set(), set()))
+            bins = (p.details or {}).get("binaries") or []
+            binaries.update(bins)
+            names.update(bins)
+            names.add(p.name)
     return out
 
 
