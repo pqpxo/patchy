@@ -42,12 +42,13 @@ import ssl
 import stat
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 DEFAULT_CONFIG = "/etc/patchy-agent/config.json"
 SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_OUTPUT = 64 * 1024
@@ -320,7 +321,10 @@ def docker_containers(errors, sock_path=DOCKER_SOCKET):
 
 STATE_DIR = "/var/lib/patchy-agent"  # systemd StateDirectory; without it the cache is simply skipped
 IMAGE_CACHE = "image-packages.json"
-MAX_NEW_IMAGE_SCANS = 10  # per run, so one report never takes too long; the rest follow on the next runs
+IMAGE_CACHE_FORMAT = 1  # bump when syft_packages output changes, so cached lists are rebuilt
+# New scans start only within this many seconds of the first. With Syft's own 900 s limit the run stays
+# inside systemd's 1800 s TimeoutStartSec, so a report always goes out; the rest follow on the next runs.
+IMAGE_SCAN_SECONDS = 600
 
 
 def find_syft():
@@ -373,35 +377,38 @@ def image_packages(containers, errors, state_dir=STATE_DIR):
     path = os.path.join(state_dir, IMAGE_CACHE)
     try:
         cache = json.loads(read_text(path))
-        cache = cache.get("images", {}) if cache.get("agent") == VERSION else {}
+        cache = cache.get("images", {}) if cache.get("format") == IMAGE_CACHE_FORMAT else {}
     except (OSError, ValueError, AttributeError):
         cache = {}
-    out, keep, scans = [], {}, 0
-    for image_id, ref in sorted(images.items(), key=lambda kv: kv[1]):
-        entry = cache.get(image_id)
+    keep = {i: cache[i] for i in images if i in cache}  # only images still in use, so the cache never outgrows the host
+
+    def save():  # after every scan, so work done survives the run being stopped
+        try:
+            with open(path + ".tmp", "w", encoding="utf-8") as f:
+                json.dump({"format": IMAGE_CACHE_FORMAT, "images": keep}, f)
+            os.replace(path + ".tmp", path)
+        except OSError:
+            pass
+
+    todo = sorted((ref, i) for i, ref in images.items() if i not in keep)
+    stop = time.monotonic() + IMAGE_SCAN_SECONDS
+    for n, (ref, image_id) in enumerate(todo, 1):
+        if time.monotonic() >= stop:
+            errors.append(f"syft: {len(todo) - n + 1} image(s) left for the next report")
+            break
+        print(f"Scanning image {n} of {len(todo)}: {ref}", file=sys.stderr, flush=True)
+        try:
+            entry = syft_scan(exe, image_id)
+        except (OSError, subprocess.SubprocessError, ValueError) as e:
+            errors.append(f"syft: {ref}: {type(e).__name__}")
+            continue
         if entry is None:
-            if scans >= MAX_NEW_IMAGE_SCANS:
-                continue
-            scans += 1
-            try:
-                entry = syft_scan(exe, image_id)
-            except (OSError, subprocess.SubprocessError, ValueError) as e:
-                errors.append(f"syft: {ref}: {type(e).__name__}")
-                continue
-            if entry is None:
-                errors.append(f"syft: could not read image {ref}")
-                continue
+            errors.append(f"syft: could not read image {ref}")
+            continue
         keep[image_id] = entry
-        out.append({"image_id": image_id, "image": ref, **entry})
-    if len(images) > len(keep) and scans >= MAX_NEW_IMAGE_SCANS:
-        errors.append(f"syft: {len(images) - len(keep)} image(s) left for the next report")
-    try:  # only images still in use are kept, so the cache never grows past the host's images
-        with open(path + ".tmp", "w", encoding="utf-8") as f:
-            json.dump({"agent": VERSION, "images": keep}, f)
-        os.replace(path + ".tmp", path)
-    except OSError:
-        pass
-    return out
+        save()
+    save()
+    return [{"image_id": i, "image": images[i], **keep[i]} for i in sorted(keep, key=lambda i: images[i])]
 
 
 BASE_PRIORITIES = {"required", "important", "standard"}
