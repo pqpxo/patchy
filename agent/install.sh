@@ -169,4 +169,7 @@ systemctl enable --now patchy-agent.timer patchy-agent-poll.timer
 echo "Checking credential..."
 runuser -u "$USER_NAME" -- python3 "$LIB/patchy_agent.py" --config "$ETC/config.json" --check || {
   echo "Credential check failed. Fix $ETC/config.json or $ETC/token, then: sudo systemctl start patchy-agent" >&2; exit 1; }
-systemctl start patchy-agent.service && echo "First report sent. Logs: journalctl -u patchy-agent"
+# --no-block: the first report can take minutes while Syft reads container images, so don't wait for it.
+systemctl start --no-block patchy-agent.service
+echo "Sending the first report in the background. With container image scanning, the first one can take several minutes."
+echo "Follow it with: journalctl -u patchy-agent -f"
