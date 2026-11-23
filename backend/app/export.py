@@ -9,7 +9,7 @@ from urllib.parse import quote
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session, selectinload
 
-from . import __version__
+from . import __version__, fixplan
 from . import matching as m
 from .db import utcnow
 from .eol import PURL_TYPES
@@ -97,6 +97,8 @@ def sbom(db: Session, host: Host | None = None, repo: Repository | None = None, 
         components.append(d)
 
     vulns: dict[str, dict] = {}
+    by_id = {c.id: c for c in comps}
+    fixes: dict[str, dict[str, str]] = {}  # advisory -> {component name: version that fixes it}
     ids = [c.id for c in comps]
     for i in range(0, len(ids), 5000):
         for f in db.scalars(select(Finding).options(selectinload(Finding.advisory))
@@ -112,8 +114,11 @@ def sbom(db: Session, host: Host | None = None, repo: Repository | None = None, 
                 v["description"] = a.summary[:1000]
             if a.cve_ids and a.cve_ids != [a.id]:
                 v["references"] = [{"id": x, "source": {"name": "NVD"}} for x in a.cve_ids[:10]]
-            if f.fixed_versions:
-                v["recommendation"] = f"Upgrade to {f.fixed_versions[0]} or later."
+            c = by_id[f.component_id]
+            if target := fixplan.target_version(c, [f])[0]:  # the fix on this component's release line
+                fixes.setdefault(a.id, {})[c.name] = target
+                v["recommendation"] = "; ".join(f"Upgrade {n} to {t} or later" for n, t in
+                                                sorted(fixes[a.id].items())) + "."
             if f.status in ANALYSIS:
                 v["analysis"] = {"state": ANALYSIS[f.status]}
             v["affects"].append({"ref": f"component-{f.component_id}"})
