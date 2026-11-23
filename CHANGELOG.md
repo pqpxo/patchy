@@ -2,6 +2,15 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.15.0 - 2026-11-23
+
+### Added
+- **Home Assistant**: a new Settings section to create read-only API tokens, and a ready-to-paste `rest:` configuration for sensors: open, critical, high, known exploited and network-exposed findings, end of life, hosts not reporting, newer images, plus feeds-stale and alerts-paused binary sensors.
+- `GET /api/integrations/summary`: the counts behind those sensors. It accepts a signed-in session or a read-only token; a token can read nothing else. Tokens are stored as a hash, record when and where they were last used, and their creation and revocation are audit-logged.
+
+### Upgrade notes
+- Adds one table (`api_tokens`). The migration runs on start and changes no existing data.
+
 ## 1.14.0 - 2026-11-23
 
 ### Added

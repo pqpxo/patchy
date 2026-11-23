@@ -30,6 +30,7 @@
 - [Vulnerability feeds](#vulnerability-feeds)
 - [Fixes](#fixes)
 - [Alerts](#alerts)
+- [Home Assistant](#home-assistant)
 - [Themes and views](#themes-and-views)
 - [How matching works](#how-matching-works)
 - [API](#api)
@@ -54,6 +55,7 @@
 - **Trend**: open findings over the last 90 days on the Overview, with the change over 30 days. Hover for each day's critical and high counts.
 - **Export**: findings as CSV (with the current filters) from Vulnerabilities or a Findings tab, and a CycloneDX 1.5 SBOM with open vulnerabilities for a host, a container image or a repository. Every export is audit-logged.
 - **Newer images** (optional, off by default): flags containers whose tag now points at a newer build on Docker Hub, GHCR, Quay or another public registry.
+- **Home Assistant sensors**: read-only API tokens and a summary endpoint, with ready-made `rest:` sensors for open, critical, known-exploited and network-exposed findings, end of life, hosts not reporting and newer images.
 - **GitHub Dependabot**: cross-checks each repository's Dependabot alerts against Patchy's own findings.
 - **Per-source schedules**: switch each source on or off and choose how often it refreshes, from Settings.
 - **Interface**: 18 colour schemes with day and night modes, 6 font styles, compact density, sortable tables with a column chooser, quick search (Ctrl+K). Version and changelog in Settings.
@@ -358,6 +360,27 @@ Destinations can also be set in `.env` (see the table under [Configuration](#con
 
 <br>
 
+## Home Assistant
+
+Patchy's counts can be Home Assistant sensors, so you can graph them, put them on a dashboard, or trigger automations.
+
+1. In **Settings > Home Assistant**, create a read-only token. It can read `GET /api/integrations/summary` and nothing else, and it is shown once.
+2. Put it in Home Assistant's `secrets.yaml` as `patchy_auth: "Bearer pt_..."`.
+3. Copy the `rest:` block shown on the same page into `configuration.yaml`, then restart Home Assistant.
+
+The summary looks like this. New keys may be added; existing ones keep their meaning.
+
+```json
+{"open": 12, "critical": 1, "high": 4, "medium": 6, "low": 1, "kev": 1, "network_exposed": 3,
+ "eol": 2, "eol_soon": 1, "hosts": 4, "hosts_not_reporting": 0, "newer_images": 2,
+ "feeds_stale": false, "alerts_paused": false, "version": "1.15.0", "generated_at": "2026-11-23T22:40:00+00:00"}
+```
+
+> [!TIP]
+> Home Assistant polls every 5 minutes. Tokens record when and from which IP they were last used, and can be revoked from the same page. Creating and revoking tokens is audit-logged.
+
+<br>
+
 ## Themes and views
 
 Settings, Appearance: 18 colour schemes (Navy, Graphite, Harbour, Fern, Plum, Ember, Sand, Steel, Indigo, Midnight, Ocean, Mint, Forest, Moss, Copper, Rose, Berry, High contrast), each with day and night modes or follow the system, 6 font styles using fonts already on the device (nothing is downloaded), comfortable or compact density, and rows per page. Choices are saved per browser.
@@ -381,6 +404,8 @@ JSON over `/api`. The OpenAPI schema is at `/api/openapi.json`, and Swagger UI i
 | Feeds and dashboard | `GET /api/feeds`, `POST /api/feeds/refresh` (optional `{"sources": [...]}`), `GET /api/dashboard`, `GET /api/settings`, `PUT /api/settings/sources`, `GET /api/version`, `GET /api/audit` |
 | Fix plans | `GET /api/fix-plan?host_id=` or `?repository_id=` |
 | Agent (bearer token) | `GET /api/agent/ping`, `POST /api/agent/report` |
+| Exports | `GET /api/findings/export` (same filters as `/api/findings`), `GET /api/sbom?host_id=` (optional `&image=`) or `?repository_id=` |
+| Integrations | `GET /api/integrations/summary` (session or read-only bearer token), `GET/POST /api/settings/tokens`, `DELETE /api/settings/tokens/{id}` |
 
 Lists take `page`, `page_size` (max 200), `sort` and `order` (`asc`/`desc`) and return `{items, total, page, page_size}`. Writes from the browser need the `X-CSRF-Token` header returned by `/api/auth/me`. Times are UTC ISO 8601. Re-sending an agent report with the same `report_id` returns the original scan, and a repeated scan request returns the queued one.
 

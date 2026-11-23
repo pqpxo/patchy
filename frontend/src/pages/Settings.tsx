@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { get, post, put, type AuditEntry, type Feed, type Page, type ScanRun } from "../api";
+import { del, get, post, put, type AuditEntry, type Feed, type Page, type ScanRun } from "../api";
 import { Icon } from "../icons";
 import { HOURS_LABEL, safeUrl } from "../format";
 import { FONTS, PAGE_SIZES, SCHEMES, resolvedMode, setPrefs, usePrefs, type Mode } from "../prefs";
@@ -24,7 +24,8 @@ interface AlertsData {
 }
 
 const SECTIONS: [string, string][] = [
-  ["appearance", "Appearance"], ["sources", "Sources and schedule"], ["alerts", "Alerts"], ["system", "System"],
+  ["appearance", "Appearance"], ["sources", "Sources and schedule"], ["alerts", "Alerts"],
+  ["integrations", "Home Assistant"], ["system", "System"],
   ["account", "Account"], ["audit", "Audit log"], ["about", "About"],
 ];
 
@@ -347,6 +348,103 @@ function System({ s }: { s: SettingsData }) {
   );
 }
 
+interface ApiToken {
+  id: number; name: string; hint: string; created_at: string; created_by: string;
+  last_used_at: string | null; last_ip: string | null; revoked_at: string | null;
+}
+
+// [summary key, sensor name, mdi icon]
+const HA_SENSORS: [string, string, string][] = [
+  ["open", "Patchy open findings", "mdi:shield-bug"],
+  ["critical", "Patchy critical", "mdi:alert-octagon"],
+  ["high", "Patchy high", "mdi:alert"],
+  ["kev", "Patchy known exploited", "mdi:skull-crossbones"],
+  ["network_exposed", "Patchy network exposed", "mdi:lan"],
+  ["eol", "Patchy end of life", "mdi:calendar-remove"],
+  ["hosts_not_reporting", "Patchy hosts not reporting", "mdi:lan-disconnect"],
+  ["newer_images", "Patchy newer images", "mdi:docker"],
+];
+
+const haYaml = (origin: string) => [
+  "rest:",
+  `  - resource: ${origin}/api/integrations/summary`,
+  "    headers:",
+  "      Authorization: !secret patchy_auth",
+  "    scan_interval: 300",
+  "    sensor:",
+  ...HA_SENSORS.flatMap(([key, name, icon]) => [
+    `      - name: ${name}`,
+    `        unique_id: patchy_${key}`,
+    `        value_template: "{{ value_json.${key} }}"`,
+    "        state_class: measurement",
+    `        icon: ${icon}`,
+  ]),
+  "    binary_sensor:",
+  "      - name: Patchy feeds stale",
+  "        unique_id: patchy_feeds_stale",
+  '        value_template: "{{ value_json.feeds_stale }}"',
+  "        device_class: problem",
+  "      - name: Patchy alerts paused",
+  "        unique_id: patchy_alerts_paused",
+  '        value_template: "{{ value_json.alerts_paused }}"',
+].join("\n");
+
+function Integrations() {
+  const tokens = useLoad(() => get<ApiToken[]>("/api/settings/tokens"), []);
+  const [name, setName] = useState("Home Assistant");
+  const [busy, setBusy] = useState(false);
+  const [made, setMade] = useState<string | null>(null);
+  const create = async () => {
+    setBusy(true);
+    try {
+      const r = await post<ApiToken & { token: string }>("/api/settings/tokens", { name });
+      setMade(r.token); tokens.reload();
+    } catch (e) { toast(errText(e), "bad"); }
+    finally { setBusy(false); }
+  };
+  const revoke = async (t: ApiToken) => {
+    try { await del(`/api/settings/tokens/${t.id}`); toast(`${t.name} revoked.`); tokens.reload(); }
+    catch (e) { toast(errText(e), "bad"); }
+  };
+  const origin = window.location.origin;
+  return (
+    <>
+      <section className="card">
+        <h2>Read-only tokens</h2>
+        <p className="small muted">A token can read <code>/api/integrations/summary</code> (finding counts, end of life, hosts not reporting, newer images) and nothing else.
+          Patchy stores only a hash, so a token is shown once.</p>
+        <form className="row" onSubmit={(e) => { e.preventDefault(); create(); }}>
+          <input aria-label="Token name" value={name} maxLength={100} required onChange={(e) => setName(e.target.value)} />
+          <button className="btn primary small" disabled={busy || !name.trim()}>Create token</button>
+        </form>
+        {made && <div className="token-box">
+          <div className="alert warn"><p><strong>Copy this token now.</strong> It is shown once. In Home Assistant, put it in <code>secrets.yaml</code>:</p></div>
+          <CodeBlock code={`patchy_auth: "Bearer ${made}"`} />
+        </div>}
+        <ErrorBox error={tokens.error} onRetry={tokens.reload} />
+        {tokens.data && tokens.data.length > 0 && <div className="table-wrap"><table className="table compact">
+          <thead><tr><th>Token</th><th>Last used</th><th /></tr></thead>
+          <tbody>{tokens.data.map((t) => (
+            <tr key={t.id}>
+              <td><strong>{t.name}</strong>{t.revoked_at && <> <span className="badge tone-muted">Revoked</span></>}
+                <div className="cell-sub"><span className="num">{t.hint}</span>, created <When iso={t.created_at} /> by {t.created_by}</div></td>
+              <td className="nowrap">{t.last_used_at ? <><When iso={t.last_used_at} /><div className="cell-sub">{t.last_ip}</div></> : <span className="muted">never</span>}</td>
+              <td>{!t.revoked_at && <button className="btn small danger" onClick={() => { if (window.confirm(`Revoke ${t.name}? Anything using it stops updating.`)) revoke(t); }}>Revoke</button>}</td>
+            </tr>
+          ))}</tbody>
+        </table></div>}
+      </section>
+      <section className="card">
+        <h2>Home Assistant sensors</h2>
+        <p className="small muted">Add this to <code>configuration.yaml</code> (or a package), then restart Home Assistant. It checks every 5 minutes.
+          Use the address Home Assistant can reach Patchy on, if it differs from this one.</p>
+        <CodeBlock code={haYaml(origin)} wrap={false} />
+        <p className="small muted">Each sensor keeps history, so you can graph it or trigger automations, for example when <code>sensor.patchy_known_exploited</code> goes above 0.</p>
+      </section>
+    </>
+  );
+}
+
 function Account() {
   const [pw, setPw] = useState({ current: "", next: "", again: "" });
   const [msg, setMsg] = useState("");
@@ -460,6 +558,7 @@ export default function SettingsPage() {
           </div>}
           {t === "sources" && (s.data ? <><Sources choices={s.data.hour_choices} /><NewsFeeds n={s.data.news} onSaved={s.reload} /></> : <Skeleton />)}
           {t === "alerts" && (s.data ? <Alerts a={s.data.alerts} onChange={s.reload} /> : <Skeleton />)}
+          {t === "integrations" && <Integrations />}
           {t === "system" && (s.data ? <System s={s.data} /> : <Skeleton />)}
           {t === "account" && <Account />}
           {t === "audit" && <Audit />}
