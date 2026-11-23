@@ -347,6 +347,12 @@ _URL = r"^(https?://\S+)?$"  # empty clears
 _EMAIL = r"^[^@\s,]+@[^@\s,]+$"
 
 
+class NewsFeedsIn(In):
+    """https RSS or Atom feed addresses for the Overview; null goes back to NEWS_FEEDS."""
+    feeds: list[Annotated[str, StringConstraints(strip_whitespace=True, max_length=500,
+                                                 pattern=r"^https://[^\s/?#]+[^\s]*$")]] | None = Field(..., max_length=10)
+
+
 class AlertDestinationsIn(In):
     """Only the fields sent are changed; empty or null removes a saved value. No whitespace in URLs or addresses,
     so nothing can smuggle a new line into a mail header."""
