@@ -16,6 +16,7 @@ Self-hosted software inventory and vulnerability tracker for a home lab. Registe
 - [Linux agent](#linux-agent)
 - [Vulnerability feeds](#vulnerability-feeds)
 - [Fixes](#fixes)
+- [Alerts](#alerts)
 - [Themes and views](#themes-and-views)
 - [How matching works](#how-matching-works)
 - [API](#api)
@@ -40,6 +41,7 @@ Self-hosted software inventory and vulnerability tracker for a home lab. Registe
 - **Interface**: 18 colour schemes with day and night modes, 6 font styles, compact density, sortable tables with a column chooser, quick search (Ctrl+K). Version and changelog in Settings.
 - **Honest states**: confirmed, possible and version-unknown matches are kept separate. "Not checked" and "stale feed" are never shown as clean.
 - **Workflow**: open, acknowledged, resolved and false-positive states with notes. Findings auto-resolve when the version moves out of range and reopen if it moves back.
+- **Alerts**: one message to a webhook (Home Assistant), ntfy or email when an exploited or critical vulnerability is found, a host stops reporting, or software nears end of life.
 - **Audit log** of logins, asset changes, scans, agent enrolment and revocation, and status changes.
 
 | Fixes | Vulnerabilities |
@@ -103,6 +105,10 @@ All settings are environment variables in `.env`. See [.env.example](.env.exampl
 | `AGENT_MAX_REPORT_BYTES` | `33554432` (32 MB) | Largest agent report accepted. Image package lists make reports bigger |
 | `REPO_MAX_FILE_BYTES` / `REPO_MAX_TOTAL_BYTES` / `REPO_MAX_MANIFESTS` / `REPO_SCAN_TIMEOUT_SECONDS` | 5 MB / 50 MB / 300 / 180 | Repository scan limits |
 | `ENABLE_API_DOCS` | `false` | Swagger UI at `/api/docs` (loads from a CDN) |
+| `PATCHY_URL` | empty | Address you open Patchy on, for links in alerts |
+| `ALERT_WEBHOOK_URL` | empty | JSON POST for alerts, eg a Home Assistant webhook. Treat as a password |
+| `ALERT_NTFY_URL` / `ALERT_NTFY_TOKEN` | empty | ntfy topic URL for alerts, and its token if needed |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_STARTTLS` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` / `ALERT_EMAIL_TO` | empty / `587` / `true` | Email alerts. Port 465 uses TLS from the start |
 
 > [!TIP]
 > Behind Nginx Proxy Manager, set `FORWARDED_ALLOW_IPS` to the proxy's IP (or its Docker network gateway). Otherwise every request appears to come from the proxy, which skews rate limits and the audit log.
@@ -278,6 +284,24 @@ Each host and repository has a **Fixes** tab, and **Fixes** in the sidebar cover
 
 > [!IMPORTANT]
 > Test updates before rolling them out. Patchy builds these steps from advisory data and can't guarantee an update is safe or complete.
+
+<br>
+
+## Alerts
+
+Patchy's worker checks every 5 minutes and sends **one** message listing what's new since the last check:
+
+- **Known exploited**: a finding whose advisory is on the CISA KEV list (confirmed or possible match).
+- **Critical**: a confirmed finding rated critical.
+- **Host stops reporting**: an enrolled host with no report for 6 to 72 hours (24 by default).
+- **End of life**: an operating system, runtime or server within 90 days of end of life, or past it.
+
+Each thing alerts once. The first check after an upgrade only records what is already there, so you aren't sent the backlog. If every destination fails, the same items are tried again at the next check.
+
+Set one or more destinations in `.env`, restart with `docker compose up -d`, then turn events on or off and press **Send test** in **Settings > Alerts**.
+
+> [!TIP]
+> For Home Assistant, add an automation with a **Webhook** trigger (local only) and use its URL as `ALERT_WEBHOOK_URL`. The message is in `trigger.json.message`, the title in `trigger.json.title`, and a list of items in `trigger.json.items`.
 
 <br>
 

@@ -11,13 +11,13 @@ from pydantic import ValidationError
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from .. import __version__, dependabot, fixplan, sources, vulns
+from .. import __version__, alerts, dependabot, fixplan, sources, vulns
 from .. import matching as m
 from ..agent_ingest import Report, ingest
 from ..config import settings
 from ..db import get_db, utcnow
 from ..models import Advisory, AppSetting, AuditLog, Component, FeedStatus, Finding, Host, Repository, ScanRun, User
-from ..schemas import AuditOut, FeedOut, FindingOut, FindingStatusIn, Page, RefreshIn, ScanRunOut, SourceIn
+from ..schemas import AuditOut, FeedOut, FindingOut, FindingStatusIn, Page, RefreshIn, ScanRunOut, SourceIn, AlertsIn
 from ..security import audit, authenticate_agent, client_ip, limiter, require_user
 from ..worker import enqueue
 from .common import OPEN, bundled_agent_version, finding_out, paginate, repo_label
@@ -207,6 +207,8 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(require_user))
         "repo_limits": {"max_file_bytes": settings.repo_max_file_bytes, "max_total_bytes": settings.repo_max_total_bytes,
                         "max_manifests": settings.repo_max_manifests, "timeout_seconds": settings.repo_scan_timeout},
         "cookie_secure": settings.cookie_secure,
+        "alerts": {"destinations": alerts.destinations(), "events": alerts.config(db), "status": alerts.status(db),
+                   "silent_choices": list(alerts.SILENT_CHOICES), "patchy_url": bool(settings.patchy_url)},
         "coverage": {
             "local_version_comparison": sorted(m.ECOSYSTEM_COMPARATORS),
             "osv_queried": sorted(m.OSV_ECOSYSTEMS),
@@ -231,6 +233,30 @@ def update_sources(body: dict[str, SourceIn], request: Request, db: Session = De
     audit(db, user.username, "settings.sources", "settings", "sources", changes, client_ip(request))
     db.commit()
     return result
+
+
+@router.put("/settings/alerts")
+def update_alerts(body: AlertsIn, request: Request, db: Session = Depends(get_db),
+                  user: User = Depends(require_user)) -> dict:
+    changes = body.model_dump(exclude_none=True)
+    result = alerts.save(db, changes)
+    audit(db, user.username, "settings.alerts", "settings", "alerts", changes, client_ip(request))
+    db.commit()
+    return result
+
+
+@router.post("/alerts/test")
+def test_alert(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)) -> dict:
+    """Send a test message to every destination now and say which worked."""
+    limiter.check(f"alert-test:{user.id}", 5, 300)
+    if not any(alerts.destinations().values()):
+        raise HTTPException(409, "No alert destination is set. Add one to .env and restart Patchy.")
+    title = "Patchy: test alert"
+    results = alerts.send(title, "This is a test from Patchy. Alerts will arrive here.", [])
+    alerts.record(db, title, results)
+    audit(db, user.username, "alerts.test", "settings", "alerts", results, client_ip(request))
+    db.commit()
+    return {"results": results}
 
 
 @router.get("/version")
