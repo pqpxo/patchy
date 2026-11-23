@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { get, type FixItem, type FixPlan as Plan, type Host, type Page, type Repo } from "../api";
 import { Icon } from "../icons";
 import { safeUrl } from "../format";
-import { CodeBlock, Empty, Epss, ErrorBox, Kev, Link, PageHead, Sev, Skeleton, useLoad, useQueryParam } from "../ui";
+import { CodeBlock, Empty, Epss, ErrorBox, Kev, Link, PageHead, Sev, Skeleton, errText, toast, useLoad, useQueryParam } from "../ui";
 
 function Upgrade({ i }: { i: FixItem }) {
   return (
@@ -32,6 +33,44 @@ function Items({ items, fixed = true }: { items: FixItem[]; fixed?: boolean }) {
   );
 }
 
+interface AiHelp { prompt: string; report: string; filename: string }
+
+// A prompt to paste into ChatGPT or Claude, and a Markdown report to attach with it. Built by the server on request.
+function AskAi({ hostId, repositoryId }: { hostId?: number; repositoryId?: number }) {
+  const [ai, setAi] = useState<AiHelp | null>(null);
+  const [busy, setBusy] = useState(false);
+  const create = async () => {
+    setBusy(true);
+    try { setAi(await get<AiHelp>("/api/fix-plan/ai", { host_id: hostId, repository_id: repositoryId })); }
+    catch (e) { toast(errText(e), "bad"); }
+    finally { setBusy(false); }
+  };
+  const download = () => {
+    if (!ai) return;
+    const url = URL.createObjectURL(new Blob([ai.report], { type: "text/markdown;charset=utf-8" }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: ai.filename });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  return (
+    <section className="card ai-help">
+      <div className="card-head">
+        <h2>Get help from an AI assistant</h2>
+        <button className="btn small" disabled={busy} onClick={create}>{ai ? "Refresh" : "Create prompt"}</button>
+      </div>
+      <p className="small muted">Creates a prompt for ChatGPT or Claude, and a report to attach with it: components, versions,
+        file locations, containers and what each advisory says. The report includes {hostId ? "this host's name, IP address and paths" : "this repository's name and file paths"}, so check you're happy to share it.</p>
+      {ai && <>
+        <CodeBlock code={ai.prompt} />
+        <div className="actions">
+          <button className="btn primary small" onClick={download}>Download report</button>
+          <span className="small muted">{ai.filename}, {Math.max(1, Math.round(ai.report.length / 1024))} KB. Paste the prompt, then attach the report.</span>
+        </div>
+      </>}
+    </section>
+  );
+}
+
 export function FixPlan({ hostId, repositoryId }: { hostId?: number; repositoryId?: number }) {
   const { data: p, error, reload } = useLoad(() => get<Plan>("/api/fix-plan", { host_id: hostId, repository_id: repositoryId }), [hostId, repositoryId]);
   if (error) return <ErrorBox error={error} onRetry={reload} />;
@@ -42,6 +81,7 @@ export function FixPlan({ hostId, repositoryId }: { hostId?: number; repositoryI
   }
   return (
     <div className="plan">
+      {(hostId || repositoryId) && <AskAi hostId={hostId} repositoryId={repositoryId} />}
       <div className="plan-summary card">
         <div><b>{s.upgrade_steps}</b><span>upgrade steps</span></div>
         <div><b>{s.components}</b><span>components affected</span></div>
