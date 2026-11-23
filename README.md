@@ -39,6 +39,7 @@ Self-hosted software inventory and vulnerability tracker for a home lab. Registe
 - **End of life**: support dates from endoflife.date for runtimes, frameworks, servers and host operating systems.
 - **Security news**: the 5 newest posts from security news feeds (RSS or Atom) on the Overview. The Hacker News by default; set `NEWS_FEEDS` to choose your own.
 - **Fixes**: open findings grouped into the fewest upgrade steps per host, repository and manifest, with a copy-paste command where it's safe to give one.
+- **Exposure ranking**: findings in software that listens on the network, or in a container that publishes a port, rank above ones nothing can reach.
 - **GitHub Dependabot**: cross-checks each repository's Dependabot alerts against Patchy's own findings.
 - **Per-source schedules**: switch each source on or off and choose how often it refreshes, from Settings.
 - **Interface**: 18 colour schemes with day and night modes, 6 font styles, compact density, sortable tables with a column chooser, quick search (Ctrl+K). Version and changelog in Settings.
@@ -285,11 +286,23 @@ Names must match exactly after ecosystem normalisation (PEP 503 for PyPI). A sim
 
 Each host and repository has a **Fixes** tab, and **Fixes** in the sidebar covers everything.
 
-- Findings are grouped by host and package manager, or by repository manifest. Each group is one upgrade step, ordered known-exploited first, then by severity.
+- Findings are grouped by host and package manager, or by repository manifest. Each group is one upgrade step, ordered known-exploited first, then network-exposed, then by severity.
 - The target version is the smallest release that fixes every advisory with a published fix.
 - Steps include a copy-paste command (`apt`, `apk`, `dnf`, `npm`/`yarn`/`pnpm`, `pip`, `go get`, `cargo`, `composer`, `bundle`) only when every package name and version passes a strict character check. Names from scanned repositories are untrusted, so anything unusual is listed but left out of the command.
 - Packages inside a container image are grouped per image. Updating them on the host does nothing, so the step is `docker pull` for the image, then recreating its containers.
 - Findings with no published fix, and components or host OSes that are out of support (or leave support within 90 days), are listed separately with upgrade advice.
+
+### Exposure
+
+On agent hosts, each component gets an exposure from the latest report. It is shown as a **Network** or **Local** badge on findings and fix steps; hover it to see why.
+
+| Exposure | When |
+|---|---|
+| **Network** | A process with the component's name, or one of its package's binaries, listens on any address other than loopback (`0.0.0.0`, `::`, a LAN IP). Or the component is a container image, or a package inside one, used by a running container that publishes a port |
+| **Local** | The same, but only on loopback (`127.0.0.1`, `::1`) |
+| None | Nothing is seen listening as it, eg a shared library. It still ranks by KEV, EPSS and severity |
+
+The **Priority** sort (and so **Fix first** on the Overview) goes: known exploited, then exposure, then EPSS, then severity. Exposure is a strong hint, not proof: a library such as OpenSSL is loaded by a listening process without being named after it, and a firewall or reverse proxy may block a port that is open on the host. Repositories and manual assets have no exposure.
 
 ### Get help from an AI assistant
 

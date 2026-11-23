@@ -185,6 +185,8 @@ class FindingOut(Out):
     id: int
     component_id: int
     image: str | None = None
+    exposure: str | None = None
+    exposure_note: str | None = None
     component_name: str
     component_version: str | None
     component_type: str

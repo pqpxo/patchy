@@ -38,6 +38,11 @@ def _n(count: int, word: str) -> str:
     return f"{count} {word}{'' if count == 1 else 's'}"
 
 
+def _exposure(i: dict) -> str:
+    word = {"network": "network", "local": "loopback only"}.get(i.get("exposure"), "")
+    return word + (f" ({i['exposure_note']})" if word and i.get("exposure_note") else "")
+
+
 def _slug(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", s).strip("-")[:60] or "scope"
 
@@ -107,9 +112,10 @@ def build(db: Session, host_id: int | None = None, repository_id: int | None = N
         lines += [f"- {_cell(x, 600)}" for x in g["notes"]] + ([""] if g["notes"] else [])
         rows = [[i["name"], i["package"], i["current"], i["target"], i["worst"] + (" KEV" if i["kev"] else ""),
                  f"{i['epss']:.1%}" if i["epss"] else "", "possible" if i["possible_only"] else "confirmed",
-                 ", ".join(i["advisories"][:8]), where(i["component_id"])] for i in g["items"][:MAX_ITEMS]]
-        lines += _table(["Component", "Package", "Installed", "Fixed in", "Worst", "EPSS", "Match", "Advisories",
-                         "Location"], rows)
+                 _exposure(i), ", ".join(i["advisories"][:8]), where(i["component_id"])]
+                for i in g["items"][:MAX_ITEMS]]
+        lines += _table(["Component", "Package", "Installed", "Fixed in", "Worst", "EPSS", "Match", "Exposure",
+                         "Advisories", "Location"], rows)
         if len(g["items"]) > MAX_ITEMS:
             lines += [f"...and {len(g['items']) - MAX_ITEMS} more components in this step.", ""]
 
@@ -161,7 +167,9 @@ def _prompt(scope: str, host: Host | None, repo: Repository | None, plan: dict, 
     else:
         env = "It's a code repository; dependency updates go through its manifests and lockfiles."
     top = [f"- Step {n}: {_cell(g['title'])} ({_n(len(g['items']), 'component')}, worst {g['worst']}"
-           + (", known exploited" if g["kev"] else "") + ")" for n, g in enumerate(plan["groups"][:10], 1)]
+           + (", known exploited" if g["kev"] else "")
+           + (", reachable over the network" if g.get("exposure") == "network" else "")
+           + ")" for n, g in enumerate(plan["groups"][:10], 1)]
     return "\n".join([
         f"I need help patching {scope}. {env}",
         "",
@@ -176,7 +184,7 @@ def _prompt(scope: str, host: Host | None, repo: Repository | None, plan: dict, 
         *(top or ["- No upgrade steps; see the report for end-of-life and unfixed items."]),
         "",
         "Please:",
-        "1. Put the work in order: known exploited (CISA KEV) first, then by severity and EPSS. Group anything that can be done in one go.",
+        "1. Put the work in order: known exploited (CISA KEV) first, then anything reachable over the network (the Exposure column), then by severity and EPSS. Group anything that can be done in one go.",
         "2. For each step, give the exact commands for this system, what to back up or snapshot first, how to check it worked (for example the version to expect), and how to roll back.",
         "3. Flag any update that is a major version jump or likely to break something, and what to test afterwards.",
         "4. For packages inside container images, explain whether to pull a newer image, change the image tag, or rebuild, rather than upgrading inside the container.",

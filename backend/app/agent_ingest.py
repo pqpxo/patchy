@@ -178,6 +178,39 @@ def purl_package(purl: str | None) -> tuple[str, str, str] | None:
     return PURL_ECOSYSTEMS[kind], name, version
 
 
+EXPOSURE_RANK = {"network": 2, "local": 1}
+
+
+def _reach(ip: str | None) -> str:
+    ip = (ip or "0.0.0.0").strip("[]")
+    return "local" if ip.startswith(("127.", "::1", "::ffff:127.")) or ip == "localhost" else "network"
+
+
+def _best(cands) -> tuple[str | None, str | None]:
+    return max(cands, key=lambda c: EXPOSURE_RANK.get(c[0], 0), default=(None, None))
+
+
+def exposure_maps(report: Report) -> tuple[dict, dict]:
+    """{process: (exposure, note)} from listening sockets, {container: (exposure, note)} from published ports."""
+    procs: dict[str, list] = {}
+    for l in report.listening:
+        if l.process:
+            procs.setdefault(l.process, []).append((_reach(l.ip), f"{l.process} listens on {l.ip}:{l.port}"))
+    ctrs: dict[str, list] = {}
+    for ct in report.containers:
+        if ct.name and ct.state in (None, "running"):
+            for p in ct.ports:
+                if p.public:
+                    ctrs.setdefault(ct.name, []).append(
+                        (_reach(p.ip), f"container {ct.name} publishes {p.ip or '0.0.0.0'}:{p.public}"))
+    return {k: _best(v) for k, v in procs.items()}, {k: _best(v) for k, v in ctrs.items()}
+
+
+def _expose(row: dict, found: tuple[str | None, str | None]) -> dict:
+    row["exposure"], row["exposure_note"] = found[0], (found[1] or "")[:200] or None
+    return row
+
+
 def image_rows(report: Report) -> list[dict]:
     """Components for the packages Syft found inside each container image, tagged with the image they live in."""
     rows = []
@@ -253,46 +286,49 @@ def ingest(db: Session, agent: Agent, report: Report, ip: str) -> tuple[ScanRun,
         g["binaries"].append(p.name)
         g["versions"].add(p.version)
     rows = []
+    procs, ctrs = exposure_maps(report)
     for (manager, src, src_ver), g in groups.items():
-        rows.append({
+        rows.append(_expose({
             "identity": f"pkg|{manager}|{src}", "name": src, "component_type": "os_package",
             "ecosystem": os_ecosystem(report.host.os, manager), "version": src_ver, "version_status": "exact",
             "source_package": src, "source_version": src_ver, "vendor": report.host.os.id,
             "details": {"manager": manager, "binaries": sorted(g["binaries"])[:200],
                         "binary_versions": sorted(g["versions"])[:20]}, "paths": [],
-        })
+        }, _best(procs[n] for n in {src, *g["binaries"]} if n in procs)))
     by_process = {}
     for l in report.listening:
         if l.process:
             by_process.setdefault(l.process, l)
     for pr in report.probes:
         lst = by_process.get(pr.name)
-        rows.append({
+        rows.append(_expose({
             "identity": f"probe|{pr.name}", "name": pr.name, "component_type": pr.component_type,
             "ecosystem": None, "version": pr.version, "version_status": "exact" if pr.version else "unknown",
             "install_path": pr.path, "listen_ip": lst.ip if lst else None, "port": lst.port if lst else None,
             "protocol": lst.protocol if lst else None,
             "details": {"note": "detected by allowlisted version command"},
             "paths": [(pr.path, "executable")] if pr.path else [],
-        })
+        }, procs.get(pr.name, (None, None))))
     for image_ref in sorted({ct.image for ct in report.containers}):
         ct = next(c for c in report.containers if c.image == image_ref)
         image, _, tag = image_ref.rpartition(":") if ":" in image_ref.rsplit("/", 1)[-1] else (image_ref, "", "")
         if (not tag or tag == "latest") and ct.version:  # the image's own version label beats a moving tag
             tag = ct.version
-        rows.append({
+        users = {c.name for c in report.containers if c.image == image_ref and c.name}
+        rows.append(_expose({
             "identity": f"container|{image_ref}", "name": image or image_ref, "component_type": "container_image",
             "ecosystem": None, "version": tag or None,
             "version_status": "exact" if tag and tag != "latest" else "unknown", "details": None, "paths": [],
-        })
+        }, _best(ctrs[n] for n in users if n in ctrs)))
     for a in report.apps:  # dpkg ones are already os_package components above
         if a.manager != "dpkg":
-            rows.append({
+            rows.append(_expose({
                 "identity": f"{a.manager}|{a.name}", "name": a.name, "component_type": "application", "ecosystem": None,
                 "version": a.version, "version_status": "exact" if a.version else "unknown",
                 "details": {"note": f"installed with {a.manager}"}, "paths": [],
-            })
-    image_items = image_rows(report)
+            }, procs.get(a.name, (None, None))))
+    image_items = [_expose(r, _best(ctrs[n] for n in r["details"]["containers"] if n in ctrs))
+                   for r in image_rows(report)]
     ids = sync_components(db, run, f"host:{host.id}", rows + image_items, source="agent", host_id=host.id)
 
     db.execute(delete(HostService).where(HostService.host_id == host.id))
