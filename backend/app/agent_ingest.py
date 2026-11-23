@@ -202,6 +202,31 @@ def image_rows(report: Report) -> list[dict]:
     return rows
 
 
+def track_image_scans(host: Host, report: Report) -> None:
+    """Record when each image was scanned, and queue one scan of any image that replaced a scanned one.
+
+    Watchtower or `docker compose pull` gives a tag a new image ID; the agent only keeps scans of images in use,
+    so without this the tag's scan would vanish until someone pressed Scan again."""
+    now = utcnow().isoformat()
+    seen = {ref: dict(v) for ref, v in (host.image_scans or {}).items()}
+    for img in report.images:
+        ids = {i.image_id for i in report.images if i.image == img.image}
+        if img.image_id and seen.get(img.image, {}).get("image_id") not in ids:
+            seen[img.image] = {"image_id": img.image_id, "scanned_at": now}
+    queue = list(host.image_scan_requests or [])
+    if report.image_requests_done is not None:  # agents before 1.4 can't scan on request
+        scanned = {i.image_id for i in report.images}
+        for ct in report.containers:
+            s = seen.get(ct.image)
+            if s and ct.image_id and ct.image_id not in scanned and s.get("requested") != ct.image_id:
+                s["requested"] = ct.image_id  # once per image ID, so a scan that keeps failing can't loop
+                if ct.image_id not in queue:
+                    queue.append(ct.image_id)
+    host.image_scan_requests = queue[-100:] or None
+    in_use = {ct.image for ct in report.containers}
+    host.image_scans = {ref: v for ref, v in seen.items() if ref in in_use} or None
+
+
 def ingest(db: Session, agent: Agent, report: Report, ip: str) -> tuple[ScanRun, bool, list[int]]:
     """Returns (run, duplicate, component_ids). Re-sent reports are idempotent via report_id."""
     key = f"agent:{agent.id}:{report.report_id}"
@@ -299,6 +324,7 @@ def ingest(db: Session, agent: Agent, report: Report, ip: str) -> tuple[ScanRun,
     if host.image_scan_requests:  # an agent too old to answer scan requests clears them all, so they can't loop
         done = set(report.image_requests_done) if report.image_requests_done is not None else set(host.image_scan_requests)
         host.image_scan_requests = [i for i in host.image_scan_requests if i not in done] or None
+    track_image_scans(host, report)
 
     agent.last_seen_at, agent.last_ip, agent.agent_version = now, ip, report.agent_version
     run.status = "partial" if report.errors else "succeeded"

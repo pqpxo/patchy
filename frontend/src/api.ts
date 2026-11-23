@@ -103,6 +103,7 @@ export interface Host {
   last_report_at: string | null; created_at: string; agent: Agent | null; component_count: number; open_findings: number;
   os_id: string | null; os_eol_state: string | null; os_eol: EolInfo | null; agent_outdated: boolean; exposure: Exposure | null;
   rescan_requested_at: string | null; image_scan_requests?: string[] | null;
+  image_scans?: Record<string, { image_id: string; scanned_at: string; requested?: string }> | null;
 }
 
 export interface Container {

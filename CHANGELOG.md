@@ -2,6 +2,14 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.8.0 - 2026-11-23
+
+### Added
+- When a pull or rebuild gives a scanned image's tag a new image ID, the new image is queued for a scan automatically, once. Before, its scan was lost until someone pressed Scan again. No agent update needed (1.4 or later).
+- **Scan all** on the host's Containers card queues every image not yet scanned.
+- Each scanned container image shows when it was scanned.
+- Database migration 0006 adds one nullable column recording which images were scanned and when. Nothing is changed or dropped.
+
 ## 1.7.2 - 2026-11-23
 
 ### Fixed
