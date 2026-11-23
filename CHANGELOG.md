@@ -2,6 +2,11 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.7.2 - 2026-11-23
+
+### Fixed
+- The AI assistant card on Fixes kept showing the previous host's or repository's prompt after switching. It now starts empty for each one.
+
 ## 1.7.1 - 2026-11-23
 
 ### Fixed
