@@ -6,7 +6,7 @@ import { usePrefs } from "../prefs";
 import { AssetTable, FindingTable } from "../tables";
 import {
   CodeBlock, Copy, DangerButton, DataTable, Empty, Eol, ErrorBox, Exposure, Field, KV, Kev, Link, PageHead, Pager, RunBanner, Sev, Skeleton, Status,
-  Tabs, When, errText, fieldErrors, navigate, toast, useLoad, useQueryParam, useSort, type Col,
+  TAB_PAGE, TabPager, Tabs, When, errText, fieldErrors, navigate, toast, useLoad, usePage, useQueryParam, useSort, type Col,
 } from "../ui";
 import { FixPlan } from "./Fix";
 
@@ -305,10 +305,12 @@ export function HostDetailPage({ id }: { id: number }) {
   const t = tab || "overview";
   const aSort = useSort("name", "asc", true);
   const fSort = useSort("priority", "desc", true);
-  const assets = useLoad(() => t === "assets" ? get<Page<Asset>>("/api/assets", { host_id: id, page_size: 200, sort: aSort.sort, order: aSort.order })
-    : Promise.resolve(undefined), [id, t, aSort.sort, aSort.order]);
-  const findings = useLoad(() => t === "findings" ? get<Page<Finding>>("/api/findings", { host_id: id, page_size: 200, status: ["open", "acknowledged"], sort: fSort.sort, order: fSort.order })
-    : Promise.resolve(undefined), [id, t, fSort.sort, fSort.order]);
+  const [aPage, setAPage] = usePage([id, aSort.sort, aSort.order]);
+  const [fPage, setFPage] = usePage([id, fSort.sort, fSort.order]);
+  const assets = useLoad(() => t === "assets" ? get<Page<Asset>>("/api/assets", { host_id: id, page: aPage, page_size: TAB_PAGE, sort: aSort.sort, order: aSort.order })
+    : Promise.resolve(undefined), [id, t, aPage, aSort.sort, aSort.order]);
+  const findings = useLoad(() => t === "findings" ? get<Page<Finding>>("/api/findings", { host_id: id, page: fPage, page_size: TAB_PAGE, status: ["open", "acknowledged"], sort: fSort.sort, order: fSort.order })
+    : Promise.resolve(undefined), [id, t, fPage, fSort.sort, fSort.order]);
   if (error) return <ErrorBox error={error} onRetry={reload} />;
   if (!data) return <Skeleton />;
   const h = data.host;
@@ -384,10 +386,10 @@ export function HostDetailPage({ id }: { id: number }) {
       </div>}
       {t === "assets" && (assets.data ? <>
         <AssetTable items={assets.data.items} sort={aSort} table="host-assets" where={false} />
-        {assets.data.total > 200 && <p><Link to={`/assets?host_id=${id}`}>Showing 200 of {assets.data.total}. Open in Assets</Link></p>}
+        <TabPager data={assets.data} onPage={setAPage} />
       </> : <Skeleton />)}
       {t === "findings" && (findings.data ? (findings.data.items.length
-        ? <FindingTable items={findings.data.items} sort={fSort} showAsset={false} table="host-findings" />
+        ? <><FindingTable items={findings.data.items} sort={fSort} showAsset={false} table="host-findings" /><TabPager data={findings.data} onPage={setFPage} /></>
         : <Empty title="No open findings on this host." />) : <Skeleton />)}
       {t === "fix" && <FixPlan hostId={id} />}
       {t === "reports" && (data.runs.length === 0 ? <Empty title="No reports yet." /> : (

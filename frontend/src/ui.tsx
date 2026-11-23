@@ -307,6 +307,20 @@ export function DataTable<T>({ table, cols, rows, rowKey, sort, tools, rowClass,
   );
 }
 
+/** A page number that goes back to 1 whenever `key` changes (another sort order, another record). */
+export function usePage(key: unknown[]): [number, (p: number) => void] {
+  const k = JSON.stringify(key);
+  const [s, set] = useState({ page: 1, k });
+  return [s.k === k ? s.page : 1, (page) => { set({ page, k }); window.scrollTo({ top: 0 }); }];
+}
+
+export const TAB_PAGE = 200;
+
+/** Pager for a tab that shows up to 200 rows a page. Hidden when everything fits on one page. */
+export function TabPager({ data, onPage }: { data: { page: number; total: number; page_size: number }; onPage: (p: number) => void }) {
+  return data.total > data.page_size ? <Pager page={data.page} total={data.total} size={data.page_size} sizes={false} onPage={onPage} /> : null;
+}
+
 export function Pager({ page, total, size, onPage, sizes = true }: { page: number; total: number; size: number; onPage: (p: number) => void; sizes?: boolean }) {
   const pages = Math.max(1, Math.ceil(total / size));
   const prefs = usePrefs();

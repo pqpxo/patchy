@@ -2,6 +2,11 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.9.1 - 2026-11-23
+
+### Fixed
+- The Findings and Assets tabs on a host or repository only showed the first 200 rows. They now page through everything, 200 per page. Changing the sort goes back to page 1.
+
 ## 1.9.0 - 2026-11-23
 
 ### Added
