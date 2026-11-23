@@ -170,6 +170,13 @@ export function Kev({ on }: { on: boolean }) {
   return on ? <span className="badge kev" title="Listed in CISA Known Exploited Vulnerabilities">KEV</span> : null;
 }
 
+/** Network exposure from the agent: a process listening beyond loopback, or a container publishing a port. */
+export function Reach({ e, note }: { e?: string | null; note?: string | null }) {
+  if (e === "network") return <span className="badge tone-warn" title={note ?? "Reachable over the network"}>Network</span>;
+  if (e === "local") return <span className="badge tone-muted" title={note ?? "Listens on loopback only"}>Local</span>;
+  return null;
+}
+
 export function CheckState({ s }: { s: string }) {
   const c = CHECK_STATES[s] ?? { label: s, tone: "muted", help: "" };
   return <span className={`badge tone-${c.tone}`} title={c.help}>{c.label}</span>;

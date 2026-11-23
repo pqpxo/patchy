@@ -151,6 +151,10 @@ class Component(Base):
     listen_ip: Mapped[str | None] = mapped_column(String(64))
     port: Mapped[int | None] = mapped_column(Integer)
     protocol: Mapped[str | None] = mapped_column(String(8))
+    # Agent hosts: "network" when its process listens beyond loopback or its container publishes a port,
+    # "local" when only on loopback. Ranks findings; exposure_note says why.
+    exposure: Mapped[str | None] = mapped_column(String(16))
+    exposure_note: Mapped[str | None] = mapped_column(String(200))
     install_path: Mapped[str | None] = mapped_column(String(1024))
     details: Mapped[dict | None] = mapped_column(JSON)
     notes: Mapped[str | None] = mapped_column(Text)
