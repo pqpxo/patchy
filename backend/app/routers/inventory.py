@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .. import matching as m
-from .. import repo_scanner, vulns
+from .. import registry, repo_scanner, vulns
 from ..db import get_db, utcnow
 from ..models import (Advisory, Agent, Component, ComponentObservation, ComponentPath, Finding, Host, HostPath,
                       HostService, Repository, ScanRun, User)
@@ -260,7 +260,8 @@ def get_host(host_id: int, db: Session = Depends(get_db), _: User = Depends(requ
             "services": [ServiceOut.model_validate(s) for s in services],
             "paths": [HostPathOut.model_validate(p) for p in paths],
             "runs": [ScanRunOut.model_validate(r) for r in runs],
-            "containers": h.containers or [], "apps": h.apps or [], "images": _image_summary(db, h.id)}
+            "containers": h.containers or [], "apps": h.apps or [], "images": _image_summary(db, h.id),
+            "image_updates": registry.newer(db, h)}
 
 
 def _image_summary(db: Session, host_id: int) -> dict[str, dict]:

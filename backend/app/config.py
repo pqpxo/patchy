@@ -27,10 +27,12 @@ class Settings:
         self.epss_enabled = _bool("EPSS_ENABLED", True)
         self.eol_enabled = _bool("EOL_ENABLED", True)
         self.dependabot_enabled = _bool("DEPENDABOT_ENABLED", True)
+        self.image_updates_enabled = _bool("IMAGE_UPDATES_ENABLED", False)
         # Default schedule; each source's schedule can then be changed on the Settings page.
         self.feed_refresh_hours = _int("FEED_REFRESH_HOURS", 24)  # 0 = manual refresh only
         self.feed_stale_hours = _int("FEED_STALE_HOURS", 72)
         # Security news on the Overview: comma-separated https RSS/Atom feeds, empty to turn it off.
+        # The Settings page can replace this list.
         self.news_feeds = os.getenv("NEWS_FEEDS", "https://feeds.feedburner.com/TheHackersNews")
         self.osv_max_queries = _int("OSV_MAX_QUERIES_PER_REFRESH", 5000)
         self.osv_max_vulns_per_package = _int("OSV_MAX_VULNS_PER_PACKAGE", 200)

@@ -2,6 +2,13 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.13.0 - 2026-11-23
+
+### Added
+- **Security news feeds in Settings**: under Sources and schedule, list up to 10 https RSS or Atom feeds, or leave it empty to hide the news card. The worker fetches the new list straight away. **Use NEWS_FEEDS** goes back to the environment variable.
+- **NuGet**: repository scans read `packages.lock.json`, `packages.config`, and `PackageReference`/`PackageVersion` items in `.csproj`, `.fsproj`, `.vbproj` and `Directory.Packages.props`, and check them against OSV.
+- **Container image updates** (off by default): a new source that asks public registries (Docker Hub, GHCR, lscr.io, Quay and others) once a day whether each running container's tag points at a newer build, and shows **Newer image** on the host's Containers card. Switch it on in Settings or with `IMAGE_UPDATES_ENABLED=true`. Diun and Watchtower do this too, so leave it off if you already run one.
+
 ## 1.12.0 - 2026-11-23
 
 ### Added
