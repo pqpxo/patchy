@@ -289,15 +289,34 @@ def _agent_at_least(version: str | None, major: int, minor: int) -> bool:
     return len(nums) == 2 and tuple(nums) >= (major, minor)
 
 
-@router.post("/hosts/{host_id}/images/scan", response_model=HostOut)
-def scan_image(host_id: int, body: ImageScanIn, request: Request, db: Session = Depends(get_db),
-               user: User = Depends(require_user)):
-    """Ask the agent to list the packages in one container image at its next 5-minute check-in."""
+def _image_host(db: Session, host_id: int) -> Host:
     h = _404(db.get(Host, host_id))
     if not h.agent or h.agent.revoked_at:
         raise HTTPException(409, "This host has no active agent.")
     if not _agent_at_least(h.agent.agent_version, 1, 4):
         raise HTTPException(409, "Update the agent to 1.4 or later to scan images on request.")
+    return h
+
+
+@router.post("/hosts/{host_id}/images/scan-all", response_model=HostOut)
+def scan_all_images(host_id: int, request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    """Queue every container image that hasn't been scanned. The agent works through them within its time limit
+    per run, and carries the rest over to the next runs."""
+    h = _image_host(db, host_id)
+    done = {v.get("image_id") for v in (h.image_scans or {}).values()} | set(h.image_scan_requests or [])
+    new = sorted({c["image_id"] for c in h.containers or [] if c.get("image_id")} - done)
+    if new:
+        h.image_scan_requests = [*(h.image_scan_requests or []), *new][-100:]
+    audit(db, user.username, "host.image_scan_all", "host", h.id, {"images": len(new)}, client_ip(request))
+    db.commit()
+    return _host_out(db, h, _comp_counts(db, Component.host_id, [h.id]), _open_counts(db, Component.host_id, [h.id]))
+
+
+@router.post("/hosts/{host_id}/images/scan", response_model=HostOut)
+def scan_image(host_id: int, body: ImageScanIn, request: Request, db: Session = Depends(get_db),
+               user: User = Depends(require_user)):
+    """Ask the agent to list the packages in one container image at its next 5-minute check-in."""
+    h = _image_host(db, host_id)
     ref = next((c.get("image") for c in h.containers or [] if c.get("image_id") == body.image_id), None)
     if ref is None:
         raise HTTPException(404, "That image isn't used by a container on this host.")

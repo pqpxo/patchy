@@ -245,6 +245,7 @@ class HostOut(Out):
     agent_outdated: bool = False
     rescan_requested_at: datetime | None = None
     image_scan_requests: list[str] | None = None
+    image_scans: dict[str, dict] | None = None
     component_count: int = 0
     open_findings: int = 0
     exposure: dict[str, int] | None = None
