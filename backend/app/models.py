@@ -296,6 +296,13 @@ class AppSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(TS, default=utcnow, onupdate=utcnow)
 
 
+class AlertSent(Base):
+    """What has already been alerted (or deliberately skipped), so each thing alerts once."""
+    __tablename__ = "alerts_sent"
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)  # eg finding:12, silent:3:<last report>
+    sent_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
     id: Mapped[int] = mapped_column(primary_key=True)

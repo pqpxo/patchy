@@ -9,12 +9,13 @@ import time
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from . import __version__, repo_scanner, sources, vulns
+from . import __version__, alerts, repo_scanner, sources, vulns
 from .db import SessionLocal, utcnow
 from .models import AppSetting, ScanRun
 
 log = logging.getLogger("patchy.worker")
 HEARTBEAT = pathlib.Path("/tmp/patchy-worker-heartbeat")
+ALERT_EVERY = 300  # seconds between alert checks
 
 
 def enqueue(db: Session, kind: str, *, repository_id=None, params=None) -> tuple[ScanRun, bool]:
@@ -90,8 +91,18 @@ def main() -> None:
         db.merge(AppSetting(key="worker", value={"version": __version__, "started_at": utcnow().isoformat()}))
         db.commit()
     log.info("worker %s started", __version__)
+    next_alert = 0.0
     while not stop:
         HEARTBEAT.touch()
+        if time.monotonic() >= next_alert:
+            next_alert = time.monotonic() + ALERT_EVERY
+            with SessionLocal() as db:
+                try:
+                    if n := alerts.run(db):
+                        log.info("sent an alert covering %s item(s)", n)
+                except Exception:  # an alert problem must never stop scans
+                    db.rollback()
+                    log.exception("alert check failed")
         with SessionLocal() as db:
             due = sources.due(db)
             if due:

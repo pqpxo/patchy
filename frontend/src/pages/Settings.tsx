@@ -10,10 +10,18 @@ interface SettingsData {
   repo_limits: Record<string, number>; hour_choices: number[]; version: string;
   worker: { version: string; started_at: string } | null;
   coverage: { local_version_comparison: string[]; osv_queried: string[]; nvd_products?: string; inventory_only: string[] };
+  alerts: AlertsData;
+}
+
+interface AlertEvents { kev: boolean; critical: boolean; eol: boolean; silent_hours: number }
+interface AlertsData {
+  destinations: { webhook: boolean; ntfy: boolean; email: boolean }; events: AlertEvents; silent_choices: number[];
+  patchy_url: boolean;
+  status: { last_sent_at?: string; last_attempt_at?: string; last_title?: string; last_error?: string | null; baseline_at?: string } | null;
 }
 
 const SECTIONS: [string, string][] = [
-  ["appearance", "Appearance"], ["sources", "Sources and schedule"], ["system", "System"],
+  ["appearance", "Appearance"], ["sources", "Sources and schedule"], ["alerts", "Alerts"], ["system", "System"],
   ["account", "Account"], ["audit", "Audit log"], ["about", "About"],
 ];
 
@@ -141,6 +149,73 @@ function Sources({ choices }: { choices: number[] }) {
         })}
       </div>
     </section>
+  );
+}
+
+const DESTINATIONS: [keyof AlertsData["destinations"], string, string][] = [
+  ["webhook", "Webhook", "ALERT_WEBHOOK_URL. A JSON POST with title, message and items, eg a Home Assistant webhook trigger."],
+  ["ntfy", "ntfy", "ALERT_NTFY_URL (the full topic URL) and, if the topic needs it, ALERT_NTFY_TOKEN."],
+  ["email", "Email", "SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM and ALERT_EMAIL_TO."],
+];
+
+function Alerts({ a, onChange }: { a: AlertsData; onChange: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const any = Object.values(a.destinations).some(Boolean);
+  const save = async (change: Partial<AlertEvents>) => {
+    setBusy(true);
+    try { await put("/api/settings/alerts", change); toast("Alerts saved."); onChange(); }
+    catch (e) { toast(errText(e), "bad"); }
+    finally { setBusy(false); }
+  };
+  const test = async () => {
+    setBusy(true);
+    try {
+      const r = await post<{ results: Record<string, string | null> }>("/api/alerts/test");
+      const bad = Object.entries(r.results).filter(([, e]) => e);
+      toast(bad.length ? `Not sent: ${bad.map(([d, e]) => `${d} (${e})`).join(", ")}` : "Test alert sent.", bad.length ? "bad" : undefined);
+      onChange();
+    } catch (e) { toast(errText(e), "bad"); }
+    finally { setBusy(false); }
+  };
+  const ev = a.events;
+  const events: [keyof AlertEvents, string, string][] = [
+    ["kev", "Known exploited vulnerability", "A finding whose advisory is on the CISA KEV list, including possible matches."],
+    ["critical", "Critical vulnerability", "A confirmed finding rated critical."],
+    ["eol", "End of life", "An operating system, runtime or server within 90 days of end of life, or past it."],
+  ];
+  return (
+    <>
+      <section className="card">
+        <div className="card-head">
+          <h2>Where alerts go</h2>
+          <button className="btn small" disabled={!any || busy} onClick={test}>Send test</button>
+        </div>
+        <p className="small muted">Set in <code>.env</code> on the server, then restart Patchy. Every set destination gets every alert. Addresses and tokens are never shown here.</p>
+        <KV rows={DESTINATIONS.map(([k, label, help]) => [label, <>
+          {a.destinations[k] ? <span className="badge tone-good">Set</span> : <span className="badge tone-muted">Not set</span>}
+          <div className="small muted">{help}</div></>])} />
+        {!a.patchy_url && <p className="small muted">Add <code>PATCHY_URL</code> (the address you open Patchy on) to put links in alerts.</p>}
+        {a.status?.last_error && <div className="alert bad" role="alert">Last attempt <When iso={a.status.last_attempt_at ?? null} />: {a.status.last_error}</div>}
+        {a.status?.last_sent_at && <p className="small">Last sent <When iso={a.status.last_sent_at} />: {a.status.last_title}</p>}
+      </section>
+      <section className="card">
+        <h2>What to alert on</h2>
+        <p className="small muted">Patchy checks every 5 minutes and sends one message listing what's new. Each thing alerts once.
+          Anything already there when alerts first ran, or found while its alert was off, isn't sent.</p>
+        {events.map(([k, label, help]) => (
+          <div key={k} className="setting-row">
+            <div><div className="label">{label}</div><div className="help">{help}</div></div>
+            <Switch on={!!ev[k]} disabled={busy} label={label} onChange={(v) => save({ [k]: v })} />
+          </div>
+        ))}
+        <div className="setting-row">
+          <div><div className="label">Host stops reporting</div><div className="help">An enrolled host whose agent hasn't sent a report for this long.</div></div>
+          <select aria-label="Host stops reporting" value={ev.silent_hours} disabled={busy} onChange={(e) => save({ silent_hours: +e.target.value })}>
+            {a.silent_choices.map((h) => <option key={h} value={h}>{h ? `After ${h} hours` : "Off"}</option>)}
+          </select>
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -282,6 +357,7 @@ export default function SettingsPage() {
             <CodeBlock code="docker compose up -d --force-recreate worker" />
           </div>}
           {t === "sources" && (s.data ? <Sources choices={s.data.hour_choices} /> : <Skeleton />)}
+          {t === "alerts" && (s.data ? <Alerts a={s.data.alerts} onChange={s.reload} /> : <Skeleton />)}
           {t === "system" && (s.data ? <System s={s.data} /> : <Skeleton />)}
           {t === "account" && <Account />}
           {t === "audit" && <Audit />}
