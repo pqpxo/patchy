@@ -1,9 +1,9 @@
 import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { get, post, setCsrf, setUnauthorisedHandler, type Host, type Page, type Repo } from "./api";
+import { get, post, put, setCsrf, setUnauthorisedHandler, type Host, type Page, type Repo } from "./api";
 import { Icon } from "./icons";
 import { resolvedMode, setPrefs, usePrefs } from "./prefs";
-import { Link, Skeleton, Toaster, navigate, usePath } from "./ui";
+import { Link, Skeleton, Toaster, errText, navigate, toast, usePath } from "./ui";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import { AssetDetailPage, AssetForm, AssetsPage } from "./pages/Assets";
@@ -25,6 +25,7 @@ const NAV: { to: string; label: string; icon: string; count?: keyof Counts }[][]
   [{ to: "/vulnerabilities", label: "Vulnerabilities", icon: "vulns", count: "findings" },
     { to: "/fix", label: "Fixes", icon: "fix" },
     { to: "/scans", label: "Scans", icon: "scans" }],
+  [{ to: "/settings", label: "Settings", icon: "settings" }],
 ];
 
 function route(path: string) {
@@ -66,7 +67,6 @@ function Palette({ onClose }: { onClose: () => void }) {
   const items = useMemo(() => {
     const pages = [
       ...NAV.flat().map((n) => ({ label: n.label, to: n.to, kind: "Page" })),
-      { label: "Settings", to: "/settings", kind: "Page" },
       { label: "Add an asset", to: "/assets/new", kind: "Action" },
       { label: "Appearance and themes", to: "/settings?tab=appearance", kind: "Settings" },
       { label: "Sources and schedule", to: "/settings?tab=sources", kind: "Settings" },
@@ -122,6 +122,7 @@ function App() {
   const [menu, setMenu] = useState(false);
   const [palette, setPalette] = useState(false);
   const [counts, setCounts] = useState<Counts>();
+  const [alertsPaused, setAlertsPaused] = useState(false);
 
   useEffect(() => {
     setUnauthorisedHandler(() => setUser(null));
@@ -146,11 +147,14 @@ function App() {
   useEffect(() => {
     if (!user || Date.now() - last.current < 20000) return;
     last.current = Date.now();
-    get<{ severity: Record<string, number>; coverage: { total: number }; hosts: number; repositories: number }>("/api/dashboard")
-      .then((d) => setCounts({
-        assets: d.coverage.total, hosts: d.hosts, repositories: d.repositories, critical: d.severity.critical ?? 0,
-        findings: Object.values(d.severity).reduce((a, b) => a + b, 0),
-      })).catch(() => {});
+    get<{ severity: Record<string, number>; coverage: { total: number }; hosts: number; repositories: number; alerts_paused?: boolean }>("/api/dashboard")
+      .then((d) => {
+        setCounts({
+          assets: d.coverage.total, hosts: d.hosts, repositories: d.repositories, critical: d.severity.critical ?? 0,
+          findings: Object.values(d.severity).reduce((a, b) => a + b, 0),
+        });
+        setAlertsPaused(!!d.alerts_paused);
+      }).catch(() => {});
   }, [user, path]);
 
   if (user === undefined) return <main className="center"><div style={{ width: 320 }}><Skeleton rows={3} /></div></main>;
@@ -190,12 +194,18 @@ function App() {
           ))}
         </nav>
         <div className="side-foot">
-          <Link to="/settings" className={active("/settings") ? "nav-item on" : "nav-item"} title="Settings">
-            <Icon name="settings" /><span className="label">Settings</span>
-          </Link>
           <div className="row">
             <button className="icon-btn" title={night ? "Switch to day" : "Switch to night"} aria-label={night ? "Switch to day mode" : "Switch to night mode"}
               onClick={() => setPrefs({ mode: night ? "day" : "night" })}><Icon name={night ? "sun" : "moon"} /></button>
+            <button className={alertsPaused ? "icon-btn off" : "icon-btn"} aria-pressed={alertsPaused}
+              title={alertsPaused ? "Alerts paused. Click to resume" : "Pause alerts"} aria-label="Pause alerts"
+              onClick={async () => {
+                try {
+                  await put("/api/settings/alerts", { paused: !alertsPaused });
+                  setAlertsPaused(!alertsPaused);
+                  toast(alertsPaused ? "Alerts resumed." : "Alerts paused. Anything found meanwhile won't be sent later.");
+                } catch (e) { toast(errText(e), "bad"); }
+              }}><Icon name={alertsPaused ? "bell-off" : "bell"} /></button>
             <button className="icon-btn rail-toggle" title={prefs.rail ? "Expand sidebar" : "Collapse sidebar"} aria-label="Toggle sidebar width"
               onClick={() => setPrefs({ rail: !prefs.rail })}><Icon name="rail" /></button>
             <button className="icon-btn" title="Sign out" aria-label="Sign out" onClick={async () => {

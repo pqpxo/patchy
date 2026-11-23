@@ -15,7 +15,7 @@ interface SettingsData {
 
 interface NewsSettings { feeds: string[]; default: string[]; custom: boolean }
 
-interface AlertEvents { kev: boolean; critical: boolean; eol: boolean; silent_hours: number }
+interface AlertEvents { kev: boolean; critical: boolean; eol: boolean; silent_hours: number; paused: boolean }
 interface AlertField { env: string; secret: boolean; source: "env" | "ui" | null; value: string | null }
 interface AlertsData {
   destinations: { webhook: boolean; ntfy: boolean; pushover: boolean; email: boolean }; events: AlertEvents; silent_choices: number[];
@@ -300,6 +300,10 @@ function Alerts({ a, onChange }: { a: AlertsData; onChange: () => void }) {
         <h2>What to alert on</h2>
         <p className="small muted">Patchy checks every 5 minutes and sends one message listing what's new. Each thing alerts once.
           Anything already there when alerts first ran, or found while its alert was off, isn't sent.</p>
+        <div className="setting-row">
+          <div><div className="label">Pause all alerts</div><div className="help">Nothing is sent while paused, and what turns up meanwhile isn't sent later. Also on the bell at the bottom of the sidebar.</div></div>
+          <Switch on={!!ev.paused} disabled={busy} label="Pause all alerts" onChange={(v) => save({ paused: v })} />
+        </div>
         {events.map(([k, label, help]) => (
           <div key={k} className="setting-row">
             <div><div className="label">{label}</div><div className="help">{help}</div></div>
