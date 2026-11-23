@@ -2,6 +2,16 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.14.0 - 2026-11-23
+
+### Added
+- **Pause alerts**: a bell at the bottom of the sidebar (and a switch in Settings > Alerts) stops all alerts. What turns up while paused isn't sent later.
+
+### Changed
+- Settings moved into the main sidebar list, below Scans.
+- Bigger logo and name at the top of the sidebar.
+- A new agent token has the same copy button as the install commands.
+
 ## 1.13.0 - 2026-11-23
 
 ### Added

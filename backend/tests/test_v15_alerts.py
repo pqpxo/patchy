@@ -110,7 +110,7 @@ def test_pushover(db, monkeypatch):
 def test_alert_settings_api(auth_client, monkeypatch):
     s = auth_client.get("/api/settings").json()["alerts"]
     assert s["destinations"] == {"webhook": False, "ntfy": False, "pushover": False, "email": False}
-    assert s["events"] == {"kev": True, "critical": True, "eol": True, "silent_hours": 24}
+    assert s["events"] == {"kev": True, "critical": True, "eol": True, "silent_hours": 24, "paused": False}
     assert auth_client.post("/api/alerts/test").status_code == 409
     assert auth_client.put("/api/settings/alerts", json={"silent_hours": 5}).status_code == 422
     assert auth_client.put("/api/settings/alerts", json={"eol": False, "silent_hours": 0}).json()["eol"] is False
@@ -160,3 +160,20 @@ def test_only_alertable_findings_are_read(db, host):
         db.add(Finding(component_id=c.id, advisory_id=adv_id, match_status="confirmed", evidence="e", remediation="r"))
     db.commit()
     assert [(i.kind, i.text) for i in alerts.collect(db, alerts.config(db))] == [("critical", "GHSA-r in lib 1 on me/app")]
+
+
+def test_paused_alerts_send_nothing_and_dont_replay(auth_client, db, host, monkeypatch):
+    monkeypatch.setenv("ALERT_WEBHOOK_URL", "http://hook.invalid/secret-id")
+    sent = []
+    monkeypatch.setattr(alerts, "send", lambda *a: sent.append(a) or {"webhook": None})
+    alerts.run(db)
+    assert auth_client.put("/api/settings/alerts", json={"paused": True}).json()["paused"] is True
+    assert auth_client.get("/api/dashboard").json()["alerts_paused"] is True
+    db.expire_all()
+    _finding(db, host, "GHSA-p", severity="critical")
+    assert alerts.run(db) == 0 and sent == []
+    auth_client.put("/api/settings/alerts", json={"paused": False})
+    db.expire_all()
+    assert alerts.run(db) == 0 and sent == []  # not replayed after resuming
+    _finding(db, host, "GHSA-q", severity="critical")
+    assert alerts.run(db) == 1
