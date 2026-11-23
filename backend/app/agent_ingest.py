@@ -1,6 +1,7 @@
 """Validation and ingestion of Linux agent reports."""
 from __future__ import annotations
 
+import ipaddress
 import re
 from typing import Annotated, Literal
 from urllib.parse import unquote
@@ -182,8 +183,15 @@ EXPOSURE_RANK = {"network": 2, "local": 1}
 
 
 def _reach(ip: str | None) -> str:
-    ip = (ip or "0.0.0.0").strip("[]")
-    return "local" if ip.startswith(("127.", "::1", "::ffff:127.")) or ip == "localhost" else "network"
+    ip = (ip or "0.0.0.0").strip("[]").split("%")[0]
+    if ip == "localhost":
+        return "local"
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return "network"  # unknown: assume reachable rather than hide it
+    a = getattr(a, "ipv4_mapped", None) or a  # ::ffff:127.0.0.1
+    return "local" if a.is_loopback else "network"
 
 
 def _best(cands) -> tuple[str | None, str | None]:
@@ -211,10 +219,13 @@ def _expose(row: dict, found: tuple[str | None, str | None]) -> dict:
     return row
 
 
-def image_rows(report: Report) -> list[dict]:
-    """Components for the packages Syft found inside each container image, tagged with the image they live in."""
+def image_rows(report: Report, ctrs: dict | None = None) -> list[dict]:
+    """Components for the packages Syft found inside each container image, tagged with the image they live in.
+
+    Exposure comes from every container running the image, not just the 20 names kept in details."""
     rows = []
     for img in report.images:
+        start = len(rows)
         users = sorted({c.name for c in report.containers if c.name and img.image_id and c.image_id == img.image_id})
         base = {"image": img.image, "containers": users[:20]}
         groups: dict[tuple, set] = {}
@@ -232,6 +243,9 @@ def image_rows(report: Report) -> list[dict]:
                          "ecosystem": os_ecosystem(img.distro, manager), "version": src_ver, "version_status": "exact",
                          "source_package": src, "source_version": src_ver, "vendor": img.distro.id,
                          "details": {**base, "manager": manager, "binaries": sorted(binaries)[:200]}, "paths": []})
+        found = _best((ctrs or {})[n] for n in users if n in (ctrs or {}))
+        for r in rows[start:]:
+            _expose(r, found)
     return rows
 
 
@@ -327,8 +341,7 @@ def ingest(db: Session, agent: Agent, report: Report, ip: str) -> tuple[ScanRun,
                 "version": a.version, "version_status": "exact" if a.version else "unknown",
                 "details": {"note": f"installed with {a.manager}"}, "paths": [],
             }, procs.get(a.name, (None, None))))
-    image_items = [_expose(r, _best(ctrs[n] for n in r["details"]["containers"] if n in ctrs))
-                   for r in image_rows(report)]
+    image_items = image_rows(report, ctrs)
     ids = sync_components(db, run, f"host:{host.id}", rows + image_items, source="agent", host_id=host.id)
 
     db.execute(delete(HostService).where(HostService.host_id == host.id))

@@ -33,6 +33,14 @@ def test_trend_counts_open_findings_at_the_end_of_each_day(auth_client, db, host
     assert len(auth_client.get("/api/trend", params={"days": 7}).json()["days"]) == 7
     assert auth_client.get("/api/trend", params={"days": 1000}).status_code == 422
 
+    # editing the note on a resolved finding, or moving it to another closed status, keeps its closing date
+    c_id = db.query(Finding).filter_by(advisory_id="C").one().id
+    for status in ("resolved", "false_positive"):
+        assert auth_client.post(f"/api/findings/{c_id}/status", json={"status": status, "note": "n"}).status_code == 200
+    assert auth_client.get("/api/trend").json()["days"] == days
+    assert auth_client.post(f"/api/findings/{c_id}/status", json={"status": "open", "note": "back"}).status_code == 200
+    assert auth_client.get("/api/trend").json()["days"][-1]["total"] == 3  # reopening does move it
+
 
 def test_a_new_install_starts_where_tracking_started(auth_client, db, host):
     c = Component(name="lib", version="1", component_type="library", source="agent", host_id=host.id)
