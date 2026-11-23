@@ -41,7 +41,7 @@ Self-hosted software inventory and vulnerability tracker for a home lab. Registe
 - **Interface**: 18 colour schemes with day and night modes, 6 font styles, compact density, sortable tables with a column chooser, quick search (Ctrl+K). Version and changelog in Settings.
 - **Honest states**: confirmed, possible and version-unknown matches are kept separate. "Not checked" and "stale feed" are never shown as clean.
 - **Workflow**: open, acknowledged, resolved and false-positive states with notes. Findings auto-resolve when the version moves out of range and reopen if it moves back.
-- **Alerts**: one message to a webhook (Home Assistant), ntfy or email when an exploited or critical vulnerability is found, a host stops reporting, or software nears end of life.
+- **Alerts**: one message to a webhook (Home Assistant), ntfy, Pushover or email when an exploited or critical vulnerability is found, a host stops reporting, or software nears end of life.
 - **Audit log** of logins, asset changes, scans, agent enrolment and revocation, and status changes.
 
 | Fixes | Vulnerabilities |
@@ -108,6 +108,7 @@ All settings are environment variables in `.env`. See [.env.example](.env.exampl
 | `PATCHY_URL` | empty | Address you open Patchy on, for links in alerts |
 | `ALERT_WEBHOOK_URL` | empty | JSON POST for alerts, eg a Home Assistant webhook. Treat as a password |
 | `ALERT_NTFY_URL` / `ALERT_NTFY_TOKEN` | empty | ntfy topic URL for alerts, and its token if needed |
+| `PUSHOVER_TOKEN` / `PUSHOVER_USER` | empty | Pushover application API token and your user or group key |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_STARTTLS` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` / `ALERT_EMAIL_TO` | empty / `587` / `true` | Email alerts. Port 465 uses TLS from the start |
 
 > [!TIP]
@@ -298,7 +299,9 @@ Patchy's worker checks every 5 minutes and sends **one** message listing what's 
 
 Each thing alerts once. The first check after an upgrade only records what is already there, so you aren't sent the backlog. If every destination fails, the same items are tried again at the next check.
 
-Set one or more destinations in `.env`, restart with `docker compose up -d`, then turn events on or off and press **Send test** in **Settings > Alerts**.
+Add destinations in **Settings > Alerts** (webhook, ntfy, Pushover or email), choose which events alert, then press **Send test**. Every destination that's set up gets every alert.
+
+Destinations can also be set in `.env` (see the table under [Configuration](#configuration)). A variable set in `.env` takes priority and is locked in the UI, which suits anyone who keeps all secrets out of the database.
 
 > [!TIP]
 > For Home Assistant, add an automation with a **Webhook** trigger (local only) and use its URL as `ALERT_WEBHOOK_URL`. The message is in `trigger.json.message`, the title in `trigger.json.title`, and a list of items in `trigger.json.items`.
@@ -401,4 +404,5 @@ Restore into a fresh stack with `gunzip -c file.sql.gz | docker compose exec -T 
 - Parameterised SQL via SQLAlchemy. Validation errors never echo submitted values. Advisory and repo text renders as text, and only `http(s)` links are made clickable.
 - Agent tokens: 256-bit random values, stored as SHA-256 hashes, shown once, revocable and rotatable. Failed agent auth is rate limited.
 - Secrets (`GITHUB_TOKEN`, `NVD_API_KEY`) live only in `.env`. They are never returned by the API, never logged, and scrubbed from stored errors.
+- Alert passwords, tokens and webhook URLs entered in **Settings > Alerts** are stored in the database (so they are in database backups) and are write-only: the API says whether one is set, never its value, and the audit log records field names only. Set them in `.env` instead if you prefer.
 - Containers run as non-root with read-only filesystems, no Linux capabilities and `no-new-privileges`. The database isn't published.
