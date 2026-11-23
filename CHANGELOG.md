@@ -2,6 +2,11 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.7.1 - 2026-11-23
+
+### Fixed
+- Badges now have an 8 px gap from the text before them, such as KEV next to an advisory ID. Badges that start a table cell or sit in a row that already spaces its items are unchanged.
+
 ## 1.7.0 - 2026-11-23
 
 ### Added

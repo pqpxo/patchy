@@ -239,8 +239,10 @@ main#main:focus { outline: none; }
 .empty strong { color: var(--ink); }
 
 /* ---------- badges ---------- */
-.badge { display: inline-flex; align-items: center; padding: 0 7px; border-radius: var(--r1); font-size: 0.78rem; font-weight: 600; border: 1px solid var(--rule-2); color: var(--ink-2); white-space: nowrap; line-height: 1.55; vertical-align: 1px; }
+.badge { display: inline-flex; align-items: center; margin-left: 8px; padding: 0 7px; border-radius: var(--r1); font-size: 0.78rem; font-weight: 600; border: 1px solid var(--rule-2); color: var(--ink-2); white-space: nowrap; line-height: 1.55; vertical-align: 1px; }
 .badge + .badge, .sev + .badge { margin-left: 4px; }
+/* No extra space when a badge starts its line, or when its row already spaces items with a gap. */
+.badge:first-child, :is(.top, .head-meta, .step-head, .src-title, .actions, details.dest > summary) > .badge { margin-left: 0; }
 .sev { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; font-weight: 600; text-transform: capitalize; white-space: nowrap; color: var(--ink-2); }
 .sev i { width: 8px; height: 8px; border-radius: 2px; background: var(--ink-4); flex: none; }
 .sev-critical i { background: var(--crit); } .sev-high i { background: var(--high); }
