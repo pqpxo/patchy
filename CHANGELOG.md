@@ -2,6 +2,11 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.6.2 - 2026-11-23
+
+### Changed
+- New logo in the sidebar, sign-in page, browser tab and README. Adds an icon for phones' home screens.
+
 ## 1.6.1 - 2026-11-23
 
 ### Fixed

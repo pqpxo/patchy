@@ -164,12 +164,12 @@ function App() {
       <a className="skip" href="#main">Skip to content</a>
       <div className="topbar">
         <button className="icon-btn" aria-label="Open menu" aria-expanded={menu} aria-controls="side" onClick={() => setMenu(true)}><Icon name="menu" size={20} /></button>
-        <span className="logo" aria-hidden="true">P</span><span className="grow">Patchy</span>
+        <img className="logo" src="/logo.png" alt="" /><span className="grow">Patchy</span>
         <button className="icon-btn" aria-label="Quick search" onClick={() => setPalette(true)}><Icon name="search" size={18} /></button>
       </div>
       {menu && <div className="backdrop" onClick={() => setMenu(false)} />}
       <aside id="side" className={menu ? "side open" : "side"}>
-        <div className="brand"><span className="logo" aria-hidden="true">P</span><span>Patchy</span></div>
+        <div className="brand"><img className="logo" src="/logo.png" alt="" /><span>Patchy</span></div>
         <button className="search-btn" onClick={() => setPalette(true)} title="Quick search (Ctrl+K)">
           <Icon name="search" size={15} /><span className="label">Search</span><kbd>Ctrl K</kbd>
         </button>
