@@ -2,6 +2,12 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.6.0 - 2026-11-23
+
+### Added
+- Alert destinations can be added, changed and removed in **Settings > Alerts**: webhook, ntfy, Pushover and email, plus the Patchy address used for links. Passwords, tokens and webhook URLs are write-only once saved and never sent back to the browser. Anything set in `.env` still takes priority and shows as locked.
+- Pushover as an alert destination (`PUSHOVER_TOKEN` and `PUSHOVER_USER`, or Settings). Alerts about known exploited vulnerabilities are sent at high priority.
+
 ## 1.5.0 - 2026-11-22
 
 ### Added

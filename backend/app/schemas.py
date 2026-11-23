@@ -340,6 +340,35 @@ class AlertsIn(In):
     silent_hours: Literal[0, 6, 12, 24, 48, 72] | None = None
 
 
+_URL = r"^(https?://\S+)?$"  # empty clears
+_EMAIL = r"^[^@\s,]+@[^@\s,]+$"
+
+
+class AlertDestinationsIn(In):
+    """Only the fields sent are changed; empty or null removes a saved value. No whitespace in URLs or addresses,
+    so nothing can smuggle a new line into a mail header."""
+    patchy_url: str | None = Field(None, max_length=500, pattern=_URL)
+    webhook_url: str | None = Field(None, max_length=2000, pattern=_URL)
+    ntfy_url: str | None = Field(None, max_length=2000, pattern=_URL)
+    ntfy_token: str | None = Field(None, max_length=500, pattern=r"^\S*$")
+    pushover_token: str | None = Field(None, max_length=100, pattern=r"^[A-Za-z0-9]*$")
+    pushover_user: str | None = Field(None, max_length=100, pattern=r"^[A-Za-z0-9]*$")
+    smtp_host: str | None = Field(None, max_length=255, pattern=r"^[A-Za-z0-9.\-]*$")
+    smtp_port: str | None = Field(None, pattern=r"^([1-9][0-9]{0,4})?$")
+    smtp_starttls: Literal["true", "false", ""] | None = None
+    smtp_user: str | None = Field(None, max_length=255, pattern=r"^\S*$")
+    smtp_password: str | None = Field(None, max_length=500)
+    smtp_from: str | None = Field(None, max_length=255, pattern=f"^({_EMAIL[1:-1]})?$")
+    email_to: str | None = Field(None, max_length=1000, pattern=f"^({_EMAIL[1:-1]}(, *{_EMAIL[1:-1]})*)?$")
+
+    @field_validator("smtp_port")
+    @classmethod
+    def _port(cls, v):
+        if v and int(v) > 65535:
+            raise ValueError("Port must be 1 to 65535.")
+        return v
+
+
 class SourceIn(In):
     enabled: bool | None = None
     hours: int | None = None

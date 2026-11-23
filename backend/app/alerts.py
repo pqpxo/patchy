@@ -2,12 +2,14 @@
 
 The worker calls run() every few minutes. It looks for alert-worthy things (an exploited or critical finding, a host
 that stopped reporting, end of life), drops any already alerted (alerts_sent), and sends the rest as one digest to
-every destination set in .env. Destinations are secrets (webhook IDs, tokens, SMTP password), so they live in
-environment variables only; which events alert is saved from the Settings page.
+every destination that is set up. Destinations come from .env or from Settings > Alerts; a variable set in .env
+wins and is locked in the UI. Secret fields (webhook URLs, tokens, the SMTP password) are write-only: the API says
+whether they are set, never what they are.
 """
 from __future__ import annotations
 
 import logging
+import os
 import smtplib
 from dataclasses import dataclass
 from datetime import timedelta
@@ -17,7 +19,6 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from .config import settings
 from .db import utcnow
 from .models import Agent, AlertSent, AppSetting, Component, Finding, Host
 
@@ -27,6 +28,23 @@ DEFAULTS = {"kev": True, "critical": True, "eol": True, "silent_hours": 24}
 HEADINGS = {"kev": "Known exploited (CISA KEV)", "critical": "Critical", "silent": "Hosts not reporting",
             "eol": "End of life"}
 PER_GROUP = 10
+PUSHOVER_API = "https://api.pushover.net/1/messages.json"
+# name: (environment variable, secret, default)
+FIELDS = {
+    "patchy_url": ("PATCHY_URL", False, ""),
+    "webhook_url": ("ALERT_WEBHOOK_URL", True, ""),
+    "ntfy_url": ("ALERT_NTFY_URL", True, ""),
+    "ntfy_token": ("ALERT_NTFY_TOKEN", True, ""),
+    "pushover_token": ("PUSHOVER_TOKEN", True, ""),
+    "pushover_user": ("PUSHOVER_USER", True, ""),
+    "smtp_host": ("SMTP_HOST", False, ""),
+    "smtp_port": ("SMTP_PORT", False, "587"),
+    "smtp_starttls": ("SMTP_STARTTLS", False, "true"),
+    "smtp_user": ("SMTP_USER", False, ""),
+    "smtp_password": ("SMTP_PASSWORD", True, ""),
+    "smtp_from": ("SMTP_FROM", False, ""),
+    "email_to": ("ALERT_EMAIL_TO", False, ""),
+}
 
 
 @dataclass
@@ -50,9 +68,50 @@ def save(db: Session, changes: dict) -> dict:
     return config(db)
 
 
-def destinations() -> dict[str, bool]:
-    return {"webhook": bool(settings.alert_webhook_url), "ntfy": bool(settings.alert_ntfy_url),
-            "email": bool(settings.smtp_host and settings.alert_email_to)}
+def _saved(db: Session) -> dict:
+    row = db.get(AppSetting, "alert_destinations")
+    return dict(row.value) if row else {}
+
+
+def values(db: Session) -> dict[str, str]:
+    """Destination settings in effect: .env first, then what was saved in Settings, then the default."""
+    saved = _saved(db)
+    return {k: os.getenv(var, "").strip() or saved.get(k) or default for k, (var, _, default) in FIELDS.items()}
+
+
+def fields(db: Session) -> dict[str, dict]:
+    """For the Settings page. Secret values never leave the server."""
+    saved = _saved(db)
+    out = {}
+    for k, (var, secret, default) in FIELDS.items():
+        env = os.getenv(var, "").strip()
+        value = env or saved.get(k) or ""
+        out[k] = {"env": var, "secret": secret, "source": "env" if env else "ui" if saved.get(k) else None,
+                  "value": None if secret else (value or default)}
+    return out
+
+
+def save_destinations(db: Session, changes: dict[str, str | None]) -> None:
+    """Empty or None removes a saved value. Fields set in .env can't be changed here."""
+    locked = [k for k in changes if os.getenv(FIELDS[k][0], "").strip()]
+    if locked:
+        raise ValueError(f"Set in .env, so it can't be changed here: {', '.join(FIELDS[k][0] for k in locked)}")
+    row = db.get(AppSetting, "alert_destinations") or AppSetting(key="alert_destinations", value={})
+    value = dict(row.value or {})
+    for k, v in changes.items():
+        if v:
+            value[k] = v
+        else:
+            value.pop(k, None)
+    row.value = value  # reassign so the JSON column is marked dirty
+    db.add(row)
+    db.flush()
+
+
+def destinations(v: dict[str, str]) -> dict[str, bool]:
+    return {"webhook": bool(v["webhook_url"]), "ntfy": bool(v["ntfy_url"]),
+            "pushover": bool(v["pushover_token"] and v["pushover_user"]),
+            "email": bool(v["smtp_host"] and v["email_to"])}
 
 
 def status(db: Session) -> dict | None:
@@ -115,7 +174,7 @@ def collect(db: Session, cfg: dict) -> list[Item]:
     return items
 
 
-def compose(items: list[Item]) -> tuple[str, str]:
+def compose(items: list[Item], patchy_url: str = "") -> tuple[str, str]:
     counts = {k: sum(i.kind == k for i in items) for k in HEADINGS}
     words = {"kev": "exploited vulnerability", "critical": "critical vulnerability", "silent": "host not reporting",
              "eol": "end-of-life item"}
@@ -132,13 +191,9 @@ def compose(items: list[Item]) -> tuple[str, str]:
         if len(group) > PER_GROUP:
             lines.append(f"- and {len(group) - PER_GROUP} more")
         lines.append("")
-    if settings.patchy_url:
-        lines.append(settings.patchy_url)
+    if patchy_url:
+        lines.append(patchy_url)
     return title, "\n".join(lines).strip()
-
-
-def _link(path: str) -> str | None:
-    return settings.patchy_url.rstrip("/") + path if settings.patchy_url else None
 
 
 def _error(e: Exception) -> str:
@@ -150,42 +205,55 @@ def _error(e: Exception) -> str:
     return type(e).__name__
 
 
-def send(title: str, message: str, items: list[Item]) -> dict[str, str | None]:
-    """Send to every configured destination. Returns {destination: error or None}."""
+def send(title: str, message: str, items: list[Item], v: dict[str, str]) -> dict[str, str | None]:
+    """Send to every configured destination (v from values()). Returns {destination: error or None}."""
     out: dict[str, str | None] = {}
-    if settings.alert_webhook_url:
+    url = v["patchy_url"]
+    if v["webhook_url"]:
         try:
-            httpx.post(settings.alert_webhook_url, timeout=15, json={
-                "title": title, "message": message, "url": settings.patchy_url or None,
-                "items": [{"kind": i.kind, "text": i.text, "url": _link(i.path)} for i in items],
+            httpx.post(v["webhook_url"], timeout=15, json={
+                "title": title, "message": message, "url": url or None,
+                "items": [{"kind": i.kind, "text": i.text, "url": url.rstrip("/") + i.path if url else None}
+                          for i in items],
             }).raise_for_status()
             out["webhook"] = None
         except Exception as e:  # noqa: BLE001 - one bad destination must not stop the others
             out["webhook"] = _error(e)
-    if settings.alert_ntfy_url:
+    if v["ntfy_url"]:
         headers = {"Title": title.encode("ascii", "replace").decode(), "Tags": "warning",
                    "Priority": "high" if any(i.kind == "kev" for i in items) else "default"}
-        if settings.patchy_url:
-            headers["Click"] = settings.patchy_url
-        if settings.alert_ntfy_token:
-            headers["Authorization"] = f"Bearer {settings.alert_ntfy_token}"
+        if url:
+            headers["Click"] = url
+        if v["ntfy_token"]:
+            headers["Authorization"] = f"Bearer {v['ntfy_token']}"
         try:
-            httpx.post(settings.alert_ntfy_url, content=message.encode(), headers=headers, timeout=15).raise_for_status()
+            httpx.post(v["ntfy_url"], content=message.encode(), headers=headers, timeout=15).raise_for_status()
             out["ntfy"] = None
         except Exception as e:  # noqa: BLE001
             out["ntfy"] = _error(e)
-    if settings.smtp_host and settings.alert_email_to:
+    if v["pushover_token"] and v["pushover_user"]:
+        data = {"token": v["pushover_token"], "user": v["pushover_user"], "title": title[:250],
+                "message": message[:1024], "priority": 1 if any(i.kind == "kev" for i in items) else 0}
+        if url:
+            data |= {"url": url, "url_title": "Open Patchy"}
+        try:
+            httpx.post(PUSHOVER_API, data=data, timeout=15).raise_for_status()
+            out["pushover"] = None
+        except Exception as e:  # noqa: BLE001
+            out["pushover"] = _error(e)
+    if v["smtp_host"] and v["email_to"]:
         msg = EmailMessage()
-        msg["Subject"], msg["From"] = title, settings.smtp_from or settings.smtp_user
-        msg["To"] = settings.alert_email_to
+        msg["Subject"], msg["From"] = title, v["smtp_from"] or v["smtp_user"]
+        msg["To"] = v["email_to"]
         msg.set_content(message)
         try:
-            cls = smtplib.SMTP_SSL if settings.smtp_port == 465 else smtplib.SMTP
-            with cls(settings.smtp_host, settings.smtp_port, timeout=20) as s:
-                if cls is smtplib.SMTP and settings.smtp_starttls:
+            port = int(v["smtp_port"])
+            cls = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP
+            with cls(v["smtp_host"], port, timeout=20) as s:
+                if cls is smtplib.SMTP and v["smtp_starttls"].lower() in ("1", "true", "yes", "on"):
                     s.starttls()
-                if settings.smtp_user:
-                    s.login(settings.smtp_user, settings.smtp_password)
+                if v["smtp_user"]:
+                    s.login(v["smtp_user"], v["smtp_password"])
                 s.send_message(msg)
             out["email"] = None
         except Exception as e:  # noqa: BLE001
@@ -213,10 +281,10 @@ def run(db: Session) -> int:
     new = [i for i in items if i.key not in seen]
     first = (status(db) or {}).get("baseline_at") is None
     wanted = [] if first else [i for i in new if cfg.get("silent_hours" if i.kind == "silent" else i.kind)]
-    sent = 0
-    if wanted and any(destinations().values()):
-        title, message = compose(wanted)
-        results = send(title, message, wanted)
+    sent, v = 0, values(db)
+    if wanted and any(destinations(v).values()):
+        title, message = compose(wanted, v["patchy_url"])
+        results = send(title, message, wanted, v)
         record(db, title, results)
         if all(results.values()):  # every destination failed: try again at the next check
             db.commit()
