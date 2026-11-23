@@ -24,7 +24,7 @@ from .models import Advisory, Agent, AlertSent, AppSetting, Component, Finding, 
 
 log = logging.getLogger("patchy.alerts")
 SILENT_CHOICES = (0, 6, 12, 24, 48, 72)  # 0 = off
-DEFAULTS = {"kev": True, "critical": True, "eol": True, "silent_hours": 24}
+DEFAULTS = {"kev": True, "critical": True, "eol": True, "silent_hours": 24, "paused": False}
 HEADINGS = {"kev": "Known exploited (CISA KEV)", "critical": "Critical", "silent": "Hosts not reporting",
             "eol": "End of life"}
 PER_GROUP = 10
@@ -283,7 +283,7 @@ def run(db: Session) -> int:
         seen.update(db.scalars(select(AlertSent.key).where(AlertSent.key.in_(keys[n:n + 500]))))
     new = [i for i in items if i.key not in seen]
     first = (status(db) or {}).get("baseline_at") is None
-    wanted = [] if first else [i for i in new if cfg.get("silent_hours" if i.kind == "silent" else i.kind)]
+    wanted = [] if first or cfg["paused"] else [i for i in new if cfg.get("silent_hours" if i.kind == "silent" else i.kind)]
     sent, v = 0, values(db)
     if wanted and any(destinations(v).values()):
         title, message = compose(wanted, v["patchy_url"])
@@ -294,7 +294,7 @@ def run(db: Session) -> int:
             log.warning("alerts not sent: %s", results)
             return 0
         sent = len(wanted)
-    # Disabled kinds, and everything when nothing is set up, are marked seen too, so turning them on later
+    # Disabled kinds, everything while paused, and everything when nothing is set up, are marked seen too, so turning them on later
     # alerts what happens from then on rather than replaying the backlog.
     db.add_all(AlertSent(key=i.key) for i in new)
     if first:

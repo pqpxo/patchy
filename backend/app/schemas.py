@@ -341,6 +341,7 @@ class AlertsIn(In):
     critical: bool | None = None
     eol: bool | None = None
     silent_hours: Literal[0, 6, 12, 24, 48, 72] | None = None
+    paused: bool | None = None
 
 
 _URL = r"^(https?://\S+)?$"  # empty clears

@@ -26,6 +26,8 @@ const P: Record<string, string> = {
   check: "M5 12.5l4.5 4.5L19 7",
   clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2",
   filter: "M4 5h16l-6 7.5V19l-4 1v-7.5z",
+  bell: "M6 16v-5a6 6 0 0 1 12 0v5l2 2H4zM10 21h4",
+  "bell-off": "M6 16v-5a6 6 0 0 1 12 0v5l2 2H4zM10 21h4M4 3l16 16",
 };
 
 export type IconName = keyof typeof P;
