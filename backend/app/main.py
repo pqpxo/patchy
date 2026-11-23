@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__
-from .routers import auth, inventory, security_api
+from .routers import auth, integrations, inventory, security_api
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("patchy")
@@ -21,6 +21,7 @@ app.include_router(auth.router)
 app.include_router(inventory.router)
 app.include_router(security_api.router)
 app.include_router(security_api.agent_router)
+app.include_router(integrations.router)
 
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")

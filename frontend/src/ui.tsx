@@ -444,8 +444,8 @@ export function RunBanner({ run, what = "Scan", onFinished }: { run?: ScanRun | 
   );
 }
 
-export function CodeBlock({ code }: { code: string }) {
-  return <div className="code"><pre>{code}</pre><Copy text={code} /></div>;
+export function CodeBlock({ code, wrap = true }: { code: string; wrap?: boolean }) {
+  return <div className={wrap ? "code" : "code nowrap"}><pre>{code}</pre><Copy text={code} /></div>;
 }
 
 export function KV({ rows }: { rows: [string, ReactNode][] }) {

@@ -356,6 +356,7 @@ main#main:focus { outline: none; }
 .code { position: relative; background: var(--inset); border: 1px solid var(--rule); border-radius: var(--r1); }
 .code pre { margin: 0; padding: 10px 12px; padding-right: 84px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.86rem; line-height: 1.55; }
 .code .btn { position: absolute; top: 5px; right: 5px; }
+.code.nowrap pre { white-space: pre; overflow-wrap: normal; overflow-x: auto; }
 code.block { display: block; background: var(--inset); border: 1px solid var(--rule); border-radius: var(--r1); padding: 8px 10px; margin-top: 6px; }
 details > summary { cursor: pointer; color: var(--ink-2); }
 details[open] > summary { margin-bottom: 6px; }
