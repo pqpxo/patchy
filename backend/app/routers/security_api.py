@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from .. import __version__, alerts, dependabot, fixplan, sources, vulns
+from .. import __version__, aiprompt, alerts, dependabot, fixplan, sources, vulns
 from .. import matching as m
 from ..agent_ingest import Report, ingest
 from ..config import settings
@@ -287,6 +287,22 @@ def version(_: User = Depends(require_user)) -> dict:
 def fix_plan(host_id: int | None = None, repository_id: int | None = None, db: Session = Depends(get_db),
              _: User = Depends(require_user)) -> dict:
     return fixplan.build(db, host_id=host_id, repository_id=repository_id)
+
+
+@router.get("/fix-plan/ai")
+def fix_plan_ai(request: Request, host_id: int | None = None, repository_id: int | None = None,
+                db: Session = Depends(get_db), user: User = Depends(require_user)) -> dict:
+    """A prompt for ChatGPT or Claude, and a Markdown report to attach, for one host or repository."""
+    if (host_id is None) == (repository_id is None):
+        raise HTTPException(422, "Choose one host or one repository.")
+    target = db.get(Host, host_id) if host_id is not None else db.get(Repository, repository_id)
+    if target is None:
+        raise HTTPException(404, "Not found.")
+    out = aiprompt.build(db, host_id=host_id, repository_id=repository_id)
+    audit(db, user.username, "fixplan.ai_report", "host" if host_id is not None else "repository",
+          host_id if host_id is not None else repository_id, None, client_ip(request))
+    db.commit()
+    return out
 
 
 @router.get("/audit", response_model=Page[AuditOut])

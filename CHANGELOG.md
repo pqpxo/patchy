@@ -2,6 +2,11 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.7.0 - 2026-11-23
+
+### Added
+- **Get help from an AI assistant** on the Fixes tab of a host or repository. **Create prompt** writes a prompt for ChatGPT or Claude and a Markdown report to attach: system details, containers, every upgrade step with installed and fixed versions, file locations, and advisory details. Text from scans is flattened and marked as data so it can't steer the assistant. Each report is recorded in the audit log.
+
 ## 1.6.2 - 2026-11-23
 
 ### Changed
