@@ -310,6 +310,20 @@ class AlertSent(Base):
     sent_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
 
 
+class ApiToken(Base):
+    """A read-only token for dashboards such as Home Assistant. Only a SHA-256 of the token is stored."""
+    __tablename__ = "api_tokens"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    token_hash: Mapped[str] = mapped_column(String(64))
+    token_hint: Mapped[str] = mapped_column(String(16))
+    created_by: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(TS)
+    last_ip: Mapped[str | None] = mapped_column(String(64))
+    revoked_at: Mapped[datetime | None] = mapped_column(TS)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
     id: Mapped[int] = mapped_column(primary_key=True)
