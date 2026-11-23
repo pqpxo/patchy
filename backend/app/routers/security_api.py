@@ -1,17 +1,18 @@
 """Findings, dashboard, feeds, settings, audit log, and the agent-facing endpoints."""
 import json
 import pathlib
+import re
 from datetime import datetime, time, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import ValidationError
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import Select, case, func, or_, select
 from sqlalchemy.orm import Session
 
-from .. import __version__, aiprompt, alerts, dependabot, fixplan, news, sources, vulns
+from .. import __version__, aiprompt, alerts, dependabot, export, fixplan, news, sources, vulns
 from .. import matching as m
 from ..agent_ingest import Report, ingest
 from ..config import settings
@@ -34,9 +35,7 @@ EXPOSURE_RANK = case({"network": 2, "local": 1}, value=Component.exposure, else_
 
 # ---------------- findings ----------------
 
-@router.get("/findings", response_model=Page[FindingOut])
-def list_findings(db: Session = Depends(get_db), _: User = Depends(require_user),
-                  severity: list[Literal["critical", "high", "medium", "low", "none", "unknown"]] = Query(None),
+def finding_query(severity: list[Literal["critical", "high", "medium", "low", "none", "unknown"]] = Query(None),
                   status: list[Literal["open", "acknowledged", "resolved", "false_positive"]] = Query(None),
                   match_status: list[Literal["confirmed", "possible", "unknown_version"]] = Query(None),
                   kev: bool | None = None, host_id: int | None = None, repository_id: int | None = None,
@@ -44,8 +43,8 @@ def list_findings(db: Session = Depends(get_db), _: User = Depends(require_user)
                   include_stale_matches: bool = False,
                   sort: Literal["priority", "severity", "epss", "cvss", "published", "component", "location",
                                 "match", "status", "detected", "exposure"] = "severity",
-                  order: Literal["asc", "desc"] = "desc",
-                  page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
+                  order: Literal["asc", "desc"] = "desc") -> Select:
+    """The findings list's filters and order, shared by the list and its CSV export."""
     query = (select(Finding).join(Advisory).join(Component).outerjoin(Host, Component.host_id == Host.id)
              .outerjoin(Repository, Component.repository_id == Repository.id))
     if severity:
@@ -77,8 +76,47 @@ def list_findings(db: Session = Depends(get_db), _: User = Depends(require_user)
                "status": Finding.status, "detected": Finding.first_detected_at, "exposure": EXPOSURE_RANK}[sort]
         query = query.order_by(col.desc() if order == "desc" else col.asc(), Advisory.kev.desc(), match_rank,
                                Finding.id)
+    return query
+
+
+@router.get("/findings", response_model=Page[FindingOut])
+def list_findings(db: Session = Depends(get_db), _: User = Depends(require_user),
+                  query: Select = Depends(finding_query),
+                  page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
     items, total = paginate(db, query, page, page_size)
     return Page(items=[finding_out(f) for f in items], total=total, page=page, page_size=page_size)
+
+
+@router.get("/findings/export")
+def export_findings(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user),
+                    query: Select = Depends(finding_query)) -> Response:
+    """The findings list, with the same filters and order, as CSV (up to 50,000 rows)."""
+    body, n = export.findings_csv(db, query)
+    audit(db, user.username, "findings.export", "finding", None, {"rows": n}, client_ip(request))
+    db.commit()
+    return Response(body, media_type="text/csv; charset=utf-8", headers={
+        "Content-Disposition": f'attachment; filename="patchy-findings-{utcnow():%Y%m%d}.csv"'})
+
+
+@router.get("/sbom")
+def get_sbom(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user),
+             host_id: int | None = None, repository_id: int | None = None,
+             image: str | None = Query(None, max_length=255)) -> Response:
+    """CycloneDX 1.5 JSON for one host, repository, or container image on a host, with its open vulnerabilities."""
+    if (host_id is None) == (repository_id is None) or (image and host_id is None):
+        raise HTTPException(422, "Give host_id (optionally with image) or repository_id.")
+    host = db.get(Host, host_id) if host_id is not None else None
+    repo = db.get(Repository, repository_id) if repository_id is not None else None
+    if not (host or repo):
+        raise HTTPException(404, "Not found.")
+    label = image or (host.name if host else f"{repo.owner}-{repo.name}")
+    bom = export.sbom(db, host, repo, image)
+    audit(db, user.username, "sbom.export", "host" if host else "repository", (host or repo).id,
+          {"image": image, "components": len(bom["components"])}, client_ip(request))
+    db.commit()
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-")[:80] or "sbom"
+    return Response(json.dumps(bom, indent=1), media_type="application/vnd.cyclonedx+json", headers={
+        "Content-Disposition": f'attachment; filename="patchy-sbom-{name}.cdx.json"'})
 
 
 @router.get("/findings/{finding_id}")

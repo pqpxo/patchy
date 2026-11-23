@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { del, get, post, type AddedApp, type Agent, type Asset, type Container, type Finding, type Host, type Page, type ScanRun } from "../api";
+import { del, get, post, qs, type AddedApp, type Agent, type Asset, type Container, type Finding, type Host, type Page, type ScanRun } from "../api";
 import { Icon } from "../icons";
 import { fmtDate, safeUrl } from "../format";
 import { usePrefs } from "../prefs";
@@ -115,7 +115,8 @@ function ImageFindings({ s, c, host, onScan }: { s?: ImageSummary; c: Container;
     {s.total ? <span><Sev s={s.worst} /> <span className="num">{s.total}</span> <Kev on={s.kev} /></span>
       : <span className="badge tone-good">None found</span>}
     <div className="cell-sub">{s.packages} package{s.packages === 1 ? "" : "s"}
-      {known && known.image_id === c.image_id && <>, scanned <When iso={known.scanned_at} /></>}</div>
+      {known && known.image_id === c.image_id && <>, scanned <When iso={known.scanned_at} /></>}
+      , <a href={`/api/sbom${qs({ host_id: host.id, image: c.image })}`} download title="CycloneDX SBOM of this image's packages">SBOM</a></div>
   </>;
 }
 
@@ -334,6 +335,7 @@ export function HostDetailPage({ id }: { id: number }) {
         meta={<><Exposure e={h.exposure} size="wide" /><Eol s={h.os_eol_state} info={h.os_eol} /><AgentBadge a={h.agent} outdated={h.agent_outdated} />
           <span className="small muted">reported <When iso={h.last_report_at} /></span></>}
         actions={<>
+          <a className="btn" href={`/api/sbom?host_id=${h.id}`} download title="CycloneDX SBOM of everything on this host, with open vulnerabilities">SBOM</a>
           {canRescan && <button className="btn" onClick={rescan} disabled={!!h.rescan_requested_at}
             title="Re-check findings now and ask the agent for a fresh report"><Icon name="refresh" size={14} /> Rescan</button>}
           <DangerButton question={`Delete host ${h.name} and all its assets and findings?`}
@@ -389,7 +391,9 @@ export function HostDetailPage({ id }: { id: number }) {
         <TabPager data={assets.data} onPage={setAPage} />
       </> : <Skeleton />)}
       {t === "findings" && (findings.data ? (findings.data.items.length
-        ? <><FindingTable items={findings.data.items} sort={fSort} showAsset={false} table="host-findings" /><TabPager data={findings.data} onPage={setFPage} /></>
+        ? <><FindingTable items={findings.data.items} sort={fSort} showAsset={false} table="host-findings"
+            tools={<a className="btn small" href={`/api/findings/export${qs({ host_id: id, status: ["open", "acknowledged"], sort: fSort.sort, order: fSort.order })}`} download>Export CSV</a>} />
+          <TabPager data={findings.data} onPage={setFPage} /></>
         : <Empty title="No open findings on this host." />) : <Skeleton />)}
       {t === "fix" && <FixPlan hostId={id} />}
       {t === "reports" && (data.runs.length === 0 ? <Empty title="No reports yet." /> : (
