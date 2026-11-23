@@ -137,8 +137,10 @@ def set_finding_status(finding_id: int, body: FindingStatusIn, request: Request,
     if not f:
         raise HTTPException(404, "Not found.")
     old = f.status
-    f.status, f.status_note = body.status, body.note
-    f.status_changed_at, f.status_changed_by = utcnow(), user.username
+    f.status, f.status_note, f.status_changed_by = body.status, body.note, user.username
+    if old != body.status and (old in OPEN or body.status in OPEN):
+        # A note edit, or moving between closed statuses, keeps the date it was closed (the trend counts from it).
+        f.status_changed_at = utcnow()
     audit(db, user.username, "finding.status", "finding", f.id,
           {"from": old, "to": body.status, "note": body.note, "advisory": f.advisory_id}, client_ip(request))
     db.commit()
