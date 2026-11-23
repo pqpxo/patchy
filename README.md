@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.png" width="128" alt="Patchy logo"></p>
+
 # Patchy
 
 Self-hosted software inventory and vulnerability tracker for a home lab. Register software by hand, discover it from GitHub repositories and Linux hosts, match it against OSV, NVD and CISA KEV, rank by EPSS exploit likelihood, track end-of-life dates, and get a step-by-step fix plan.
