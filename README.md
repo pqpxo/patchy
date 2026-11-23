@@ -43,6 +43,7 @@ Self-hosted software inventory and vulnerability tracker for a home lab. Registe
 - **Interface**: 18 colour schemes with day and night modes, 6 font styles, compact density, sortable tables with a column chooser, quick search (Ctrl+K). Version and changelog in Settings.
 - **Honest states**: confirmed, possible and version-unknown matches are kept separate. "Not checked" and "stale feed" are never shown as clean.
 - **Workflow**: open, acknowledged, resolved and false-positive states with notes. Findings auto-resolve when the version moves out of range and reopen if it moves back.
+- **AI fix prompts**: a ready-made prompt and a downloadable report per host or repository, to get step-by-step patching help from ChatGPT or Claude.
 - **Alerts**: one message to a webhook (Home Assistant), ntfy, Pushover or email when an exploited or critical vulnerability is found, a host stops reporting, or software nears end of life.
 - **Audit log** of logins, asset changes, scans, agent enrolment and revocation, and status changes.
 
@@ -284,6 +285,18 @@ Each host and repository has a **Fixes** tab, and **Fixes** in the sidebar cover
 - Steps include a copy-paste command (`apt`, `apk`, `dnf`, `npm`/`yarn`/`pnpm`, `pip`, `go get`, `cargo`, `composer`, `bundle`) only when every package name and version passes a strict character check. Names from scanned repositories are untrusted, so anything unusual is listed but left out of the command.
 - Packages inside a container image are grouped per image. Updating them on the host does nothing, so the step is `docker pull` for the image, then recreating its containers.
 - Findings with no published fix, and components or host OSes that are out of support (or leave support within 90 days), are listed separately with upgrade advice.
+
+### Get help from an AI assistant
+
+On a host's or repository's **Fixes** tab (or **Fixes** with a host or repository chosen), **Create prompt** gives you:
+
+- **A prompt** to paste into ChatGPT or Claude. It describes the system, the upgrade steps worst first, and asks for ordered commands with backups, checks and rollback, plus mitigations for anything without a fix.
+- **A report** (`patchy-fix-report-<name>.md`) to attach with it: OS and containers, every component with its installed and fixed versions, file locations, and what each advisory says (CVSS, EPSS, CISA KEV action, references).
+
+Names and advisory text in the report come from scans and public feeds, so both the prompt and the report tell the assistant to treat them as data, not instructions.
+
+> [!WARNING]
+> The report contains host names, IP addresses and file paths. Check it before uploading it to an AI service, and don't run commands from an AI without reading them first.
 
 > [!IMPORTANT]
 > Test updates before rolling them out. Patchy builds these steps from advisory data and can't guarantee an update is safe or complete.
