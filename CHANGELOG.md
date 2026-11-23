@@ -2,6 +2,11 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.11.0 - 2026-11-23
+
+### Added
+- **Open findings trend** on the Overview, under Fix first: open confirmed and possible findings at the end of each of the last 90 days, with the change over 30 days. Hover for a day's critical and high counts. It's rebuilt from when each finding was detected and resolved, so it covers history from before this version; a new install starts where tracking began.
+
 ## 1.10.0 - 2026-11-23
 
 ### Added
