@@ -142,3 +142,21 @@ def test_destinations_set_from_settings(auth_client, db, monkeypatch):
     assert alerts.fields(db)["smtp_host"] == {"env": "SMTP_HOST", "secret": False, "source": "env", "value": "env-mail.lan"}
     r = put({"smtp_host": "other.lan"})
     assert r.status_code == 409 and "SMTP_HOST" in r.json()["detail"]
+
+
+def test_only_alertable_findings_are_read(db, host):
+    from app.models import Repository
+    repo = Repository(url="https://github.com/me/app", owner="me", name="app")
+    demo = Host(name="demo-box", is_demo=True)
+    db.add_all([repo, demo])
+    db.flush()
+    for adv_id, comp, sev, kev in (("GHSA-r", dict(repository_id=repo.id), "critical", False),
+                                   ("GHSA-d", dict(host_id=demo.id), "critical", True),
+                                   ("GHSA-low", dict(host_id=host.id), "low", False)):
+        db.add(Advisory(id=adv_id, cve_ids=[], affected=[{"versions": ["x"] * 1000}], severity=sev, kev=kev))
+        c = Component(name="lib", version="1", component_type="library", source="repo", **comp)
+        db.add(c)
+        db.flush()
+        db.add(Finding(component_id=c.id, advisory_id=adv_id, match_status="confirmed", evidence="e", remediation="r"))
+    db.commit()
+    assert [(i.kind, i.text) for i in alerts.collect(db, alerts.config(db))] == [("critical", "GHSA-r in lib 1 on me/app")]
