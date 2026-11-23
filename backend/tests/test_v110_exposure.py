@@ -47,3 +47,22 @@ def test_priority_puts_exposed_findings_first(auth_client, client, host, db):
     report = auth_client.get("/api/fix-plan/ai", params={"host_id": host.id}).json()
     assert "| Exposure |" in report["report"] and "network (nginx listens on 0.0.0.0:80)" in report["report"]
     assert "reachable over the network" in report["prompt"]
+
+
+def test_loopback_is_matched_exactly():
+    from app.agent_ingest import _reach
+    for ip in ("127.0.0.1", "::1", "[::1]", "::ffff:127.0.0.1", "localhost"):
+        assert _reach(ip) == "local", ip
+    for ip in ("::10", "::192.0.2.1", "0.0.0.0", "::", None, "192.168.1.2", "fe80::1%eth0", "*"):
+        assert _reach(ip) == "network", ip
+
+
+def test_image_exposure_uses_every_container_not_just_the_first_20():
+    from app.agent_ingest import Report, exposure_maps, image_rows
+    rep = _report()
+    web = next(c for c in rep["containers"] if c["name"] == "sample-web")
+    rep["containers"] += [{**web, "name": f"a{i:02}", "ports": []} for i in range(25)]  # sort before sample-web
+    report = Report.model_validate(rep)
+    rows = image_rows(report, exposure_maps(report)[1])
+    lodash = next(r for r in rows if r["name"] == "lodash")
+    assert "sample-web" not in lodash["details"]["containers"] and lodash["exposure"] == "network"
