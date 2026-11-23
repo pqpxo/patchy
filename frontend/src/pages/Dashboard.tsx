@@ -1,7 +1,7 @@
 import { get, type Feed, type Finding, type Page } from "../api";
 import { safeUrl } from "../format";
 import { Icon } from "../icons";
-import { Epss, ErrorBox, Kev, Link, PageHead, Sev, Skeleton, Status, When, useLoad } from "../ui";
+import { Epss, ErrorBox, Kev, Link, PageHead, Reach, Sev, Skeleton, Status, When, useLoad } from "../ui";
 
 interface Dash {
   severity: Record<string, number>; match_status: Record<string, number>; status: Record<string, number>;
@@ -78,7 +78,7 @@ function FixFirst() {
           <li key={f.id}>
             <span className="rank">{n + 1}</span>
             <div className="what">
-              <div className="top"><Sev s={f.advisory.severity} /><Link to={`/vulnerabilities/${f.id}`}>{f.advisory.id}</Link><Kev on={f.advisory.kev} /></div>
+              <div className="top"><Sev s={f.advisory.severity} /><Link to={`/vulnerabilities/${f.id}`}>{f.advisory.id}</Link><Kev on={f.advisory.kev} /><Reach e={f.exposure} note={f.exposure_note} /></div>
               <span className="small"><Link to={`/assets/${f.component_id}`}>{f.component_name}</Link> <span className="ver muted">{f.component_version}</span>
                 {(f.host_name || f.repository_label) && <span className="muted"> on {f.host_name ?? f.repository_label}</span>}</span>
               <span className="fix">{f.fixed_versions.length ? <>Upgrade to <b>{f.fixed_versions[0]}</b></> : "No fixed version published"}

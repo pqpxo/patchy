@@ -80,7 +80,8 @@ export interface Advisory {
 export interface Finding {
   id: number; component_id: number; component_name: string; component_version: string | null;
   component_type: string; ecosystem: string | null; host_id: number | null; host_name: string | null;
-  repository_id: number | null; repository_label: string | null; image?: string | null; advisory: Advisory; match_status: string;
+  repository_id: number | null; repository_label: string | null; image?: string | null; exposure?: string | null; exposure_note?: string | null;
+  advisory: Advisory; match_status: string;
   evidence: string; affected_ranges: string[]; fixed_versions: string[]; remediation: string;
   currently_matching: boolean; status: string; status_note: string | null; status_changed_at: string;
   status_changed_by: string; first_detected_at: string; last_checked_at: string;
@@ -153,12 +154,13 @@ export interface Dependabot {
 export interface FixItem {
   component_id: number; name: string; package: string; current: string | null; target: string | null; findings: number;
   worst: string; kev: boolean; epss: number | null; possible_only: boolean; advisories: string[]; unfixed: string[];
+  exposure?: string | null; exposure_note?: string | null;
 }
 
 export interface FixPlan {
   summary: { components: number; findings: number; upgrade_steps: number; no_fix: number; end_of_life: number };
   groups: { title: string; kind: string; base: string; path: string | null; host_id: number | null; repository_id: number | null;
-    items: FixItem[]; command: string | null; notes: string[]; worst: string; kev: boolean }[];
+    items: FixItem[]; command: string | null; notes: string[]; worst: string; kev: boolean; exposure?: string | null }[];
   no_fix: FixItem[];
   end_of_life: { name: string; version: string | null; component_id: number | null; host_id: number | null; state: string;
     cycle: string; eol_from: string | null; advice: string; link: string | null }[];

@@ -29,6 +29,7 @@ AGENT_FILES = {"patchy_agent.py", "install.sh", "uninstall.sh", "config.example.
 CHANGELOG = pathlib.Path(__file__).resolve().parents[3] / "CHANGELOG.md"
 
 SEV_RANK = case({"critical": 5, "high": 4, "medium": 3, "low": 2, "none": 1}, value=Advisory.severity, else_=0)
+EXPOSURE_RANK = case({"network": 2, "local": 1}, value=Component.exposure, else_=0)
 
 
 # ---------------- findings ----------------
@@ -42,7 +43,7 @@ def list_findings(db: Session = Depends(get_db), _: User = Depends(require_user)
                   component_id: int | None = None, q: str | None = Query(None, max_length=200),
                   include_stale_matches: bool = False,
                   sort: Literal["priority", "severity", "epss", "cvss", "published", "component", "location",
-                                "match", "status", "detected"] = "severity",
+                                "match", "status", "detected", "exposure"] = "severity",
                   order: Literal["asc", "desc"] = "desc",
                   page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
     query = (select(Finding).join(Advisory).join(Component).outerjoin(Host, Component.host_id == Host.id)
@@ -64,8 +65,8 @@ def list_findings(db: Session = Depends(get_db), _: User = Depends(require_user)
     if not include_stale_matches:
         query = query.where(Finding.currently_matching.is_(True) | Finding.status.in_(["resolved", "false_positive"]))
     match_rank = case({"confirmed": 0, "possible": 1}, value=Finding.match_status, else_=2)
-    if sort == "priority":  # what to fix first: known exploited, then likely exploited, then severity
-        keys = [Advisory.kev.desc(), func.coalesce(Advisory.epss, -1).desc(), SEV_RANK.desc()]
+    if sort == "priority":  # what to fix first: known exploited, reachable over the network, likely exploited, severe
+        keys = [Advisory.kev.desc(), EXPOSURE_RANK.desc(), func.coalesce(Advisory.epss, -1).desc(), SEV_RANK.desc()]
         if order == "asc":
             keys = [k.element.asc() for k in keys]
         query = query.order_by(*keys, match_rank, Finding.id)
@@ -73,7 +74,7 @@ def list_findings(db: Session = Depends(get_db), _: User = Depends(require_user)
         col = {"severity": SEV_RANK, "epss": func.coalesce(Advisory.epss, -1),
                "cvss": func.coalesce(Advisory.cvss_score, -1), "published": Advisory.published,
                "component": Component.name, "location": func.coalesce(Host.name, Repository.name), "match": match_rank,
-               "status": Finding.status, "detected": Finding.first_detected_at}[sort]
+               "status": Finding.status, "detected": Finding.first_detected_at, "exposure": EXPOSURE_RANK}[sort]
         query = query.order_by(col.desc() if order == "desc" else col.asc(), Advisory.kev.desc(), match_rank,
                                Finding.id)
     items, total = paginate(db, query, page, page_size)

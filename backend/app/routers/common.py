@@ -82,5 +82,6 @@ def finding_out(f: Finding) -> FindingOut:
         "component_name": c.name, "component_version": c.version, "component_type": c.component_type,
         "ecosystem": c.ecosystem, "host_id": c.host_id, "host_name": c.host.name if c.host else None,
         "repository_id": c.repository_id, "repository_label": repo_label(c.repository),
-        "image": (c.details or {}).get("image"), "advisory": AdvisoryOut.model_validate(f.advisory),
+        "image": (c.details or {}).get("image"), "exposure": c.exposure, "exposure_note": c.exposure_note,
+        "advisory": AdvisoryOut.model_validate(f.advisory),
     })
