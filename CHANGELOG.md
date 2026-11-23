@@ -2,6 +2,11 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.6.1 - 2026-11-23
+
+### Fixed
+- The worker's 5-minute alert check loaded every open finding with its full advisory record. On a host with many container images that took gigabytes of memory and pushed the server into swap. It now reads only exploited or critical findings, and only the few fields an alert needs.
+
 ## 1.6.0 - 2026-11-23
 
 ### Added

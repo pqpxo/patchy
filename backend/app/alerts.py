@@ -16,11 +16,11 @@ from datetime import timedelta
 from email.message import EmailMessage
 
 import httpx
-from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import and_, false, or_, select
+from sqlalchemy.orm import Session
 
 from .db import utcnow
-from .models import Agent, AlertSent, AppSetting, Component, Finding, Host
+from .models import Advisory, Agent, AlertSent, AppSetting, Component, Finding, Host, Repository
 
 log = logging.getLogger("patchy.alerts")
 SILENT_CHOICES = (0, 6, 12, 24, 48, 72)  # 0 = off
@@ -119,58 +119,61 @@ def status(db: Session) -> dict | None:
     return row.value if row else None
 
 
-def _where(c: Component) -> str:
-    if c.host:
-        return c.host.name
-    r = c.repository
-    return f"{r.owner}/{r.name}" if r else "a manual asset"
+# Only the columns alerts need, and only rows that can alert. Loading whole findings with their advisories
+# (each carrying its full affected-version list) took gigabytes on a host with many container images.
+WHERE = (Host.name, Repository.owner, Repository.name)
+NOT_DEMO = (or_(Host.is_demo.is_(None), Host.is_demo == false()),
+            or_(Repository.is_demo.is_(None), Repository.is_demo == false()))
+
+
+def _where(host, owner, repo) -> str:
+    return host or (f"{owner}/{repo}" if owner else "a manual asset")
 
 
 def collect(db: Session, cfg: dict) -> list[Item]:
     items: list[Item] = []
-    rows = db.scalars(select(Finding).options(joinedload(Finding.advisory), joinedload(Finding.component)
-                                              .joinedload(Component.host), joinedload(Finding.component)
-                                              .joinedload(Component.repository))
-                      .where(Finding.status == "open", Finding.currently_matching.is_(True))).unique()
-    for f in rows:
-        a, c = f.advisory, f.component
-        if (c.host and c.host.is_demo) or (c.repository and c.repository.is_demo) or c.missing_since:
-            continue
+    rows = db.execute(
+        select(Finding.id, Finding.match_status, Advisory.id, Advisory.cve_ids, Advisory.kev, Advisory.severity,
+               Component.name, Component.version, *WHERE)
+        .join(Advisory, Finding.advisory_id == Advisory.id).join(Component, Finding.component_id == Component.id)
+        .outerjoin(Host, Component.host_id == Host.id).outerjoin(Repository, Component.repository_id == Repository.id)
+        .where(Finding.status == "open", Finding.currently_matching.is_(True), Component.missing_since.is_(None),
+               *NOT_DEMO,
+               or_(and_(Advisory.kev.is_(True), Finding.match_status.in_(["confirmed", "possible"])),
+                   and_(Advisory.severity == "critical", Finding.match_status == "confirmed"))))
+    for fid, status, adv_id, cve_ids, kev, severity, cname, cversion, *where in rows:
         # KEV alerts include possible matches (NVD product ranges): an exploited flaw is worth a look either way.
         # A critical KEV finding still goes out as critical when only KEV alerts are off.
-        is_kev = a.kev and f.match_status in ("confirmed", "possible")
-        is_critical = a.severity == "critical" and f.match_status == "confirmed"
-        if is_kev and (cfg["kev"] or not is_critical):
-            kind = "kev"
-        elif is_critical:
-            kind = "critical"
-        else:
-            continue
-        cve = next(iter(a.cve_ids or []), None)
-        name = a.id if not cve or cve == a.id else f"{cve} ({a.id})"
-        what = f"{c.name} {c.version}" if c.version else c.name
-        items.append(Item(f"finding:{f.id}", kind, f"{name} in {what} on {_where(c)}", f"/vulnerabilities/{f.id}"))
+        is_kev = kev and status in ("confirmed", "possible")
+        is_critical = severity == "critical" and status == "confirmed"
+        kind = "kev" if is_kev and (cfg["kev"] or not is_critical) else "critical"
+        cve = next(iter(cve_ids or []), None)
+        name = adv_id if not cve or cve == adv_id else f"{cve} ({adv_id})"
+        what = f"{cname} {cversion}" if cversion else cname
+        items.append(Item(f"finding:{fid}", kind, f"{name} in {what} on {_where(*where)}", f"/vulnerabilities/{fid}"))
 
     # While this alert is off, still collect at the shortest choice so outages are marked seen and not
     # replayed when it's turned back on (run() doesn't send silent items when silent_hours is 0).
     cutoff = utcnow() - timedelta(hours=cfg["silent_hours"] or min(h for h in SILENT_CHOICES if h))
-    for h in db.scalars(select(Host).join(Agent, Agent.host_id == Host.id).where(
-            Agent.revoked_at.is_(None), Host.is_demo.is_(False), Host.last_report_at < cutoff)):
-        hours = int((utcnow() - h.last_report_at).total_seconds() // 3600)
-        items.append(Item(f"silent:{h.id}:{h.last_report_at.isoformat()}", "silent",
-                          f"{h.name} last reported {hours} hours ago", f"/hosts/{h.id}"))
+    for hid, name, last in db.execute(select(Host.id, Host.name, Host.last_report_at).join(Agent, Agent.host_id == Host.id)
+                                      .where(Agent.revoked_at.is_(None), Host.is_demo.is_(False),
+                                             Host.last_report_at < cutoff)):
+        hours = int((utcnow() - last).total_seconds() // 3600)
+        items.append(Item(f"silent:{hid}:{last.isoformat()}", "silent", f"{name} last reported {hours} hours ago",
+                          f"/hosts/{hid}"))
 
     def eol_item(key, eol, what, path):
         when = "reached end of life" if eol["state"] == "eol" else f"reaches end of life on {eol['eol_from']}"
         return Item(f"{key}:{eol['cycle']}:{eol['state']}", "eol", f"{eol['label']} {eol['cycle']} on {what} {when}",
                     path)
-    for h in db.scalars(select(Host).where(Host.os_eol_state.in_(["eol", "eol_soon"]), Host.is_demo.is_(False))):
-        items.append(eol_item(f"eol:host:{h.id}", h.os_eol, h.name, f"/hosts/{h.id}"))
-    for c in db.scalars(select(Component).options(joinedload(Component.host), joinedload(Component.repository))
-                        .where(Component.eol_state.in_(["eol", "eol_soon"]), Component.missing_since.is_(None))):
-        if (c.host and c.host.is_demo) or (c.repository and c.repository.is_demo):
-            continue
-        items.append(eol_item(f"eol:c:{c.id}", c.eol, _where(c), f"/assets/{c.id}"))
+    for hid, name, eol in db.execute(select(Host.id, Host.name, Host.os_eol).where(
+            Host.os_eol_state.in_(["eol", "eol_soon"]), Host.is_demo.is_(False))):
+        items.append(eol_item(f"eol:host:{hid}", eol, name, f"/hosts/{hid}"))
+    for cid, eol, *where in db.execute(
+            select(Component.id, Component.eol, *WHERE)
+            .outerjoin(Host, Component.host_id == Host.id).outerjoin(Repository, Component.repository_id == Repository.id)
+            .where(Component.eol_state.in_(["eol", "eol_soon"]), Component.missing_since.is_(None), *NOT_DEMO)):
+        items.append(eol_item(f"eol:c:{cid}", eol, _where(*where), f"/assets/{cid}"))
     return items
 
 
