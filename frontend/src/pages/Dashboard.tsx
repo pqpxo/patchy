@@ -1,4 +1,5 @@
 import { get, type Feed, type Finding, type Page } from "../api";
+import { safeUrl } from "../format";
 import { Icon } from "../icons";
 import { Epss, ErrorBox, Kev, Link, PageHead, Sev, Skeleton, Status, When, useLoad } from "../ui";
 
@@ -12,6 +13,33 @@ interface Dash {
 }
 
 const LEVELS = ["critical", "high", "medium", "low"] as const;
+
+interface News {
+  enabled: boolean; updated_at: string | null; errors: string[];
+  items: { title: string; url: string; source: string; published: string | null }[];
+}
+
+// Newest posts from the NEWS_FEEDS RSS/Atom feeds. The worker fetches them hourly; the browser only talks to Patchy.
+function SecurityNews() {
+  const { data } = useLoad(() => get<News>("/api/news"), []);
+  if (!data?.enabled) return null;
+  return (
+    <section className="card news">
+      <div className="card-head"><h2>Security news</h2>
+        {data.updated_at && <span className="small muted">updated <When iso={data.updated_at} /></span>}</div>
+      {data.items.length === 0 ? <p className="muted">{data.errors.length ? "Couldn't fetch the news feeds yet." : "The first fetch runs within a few minutes of the worker starting."}</p> : (
+        <ul className="news-list">{data.items.map((n) => {
+          const href = safeUrl(n.url);
+          return (
+            <li key={n.url}>{href ? <a href={href} target="_blank" rel="noopener noreferrer">{n.title}</a> : n.title}
+              <div className="cell-sub">{n.source}{n.published && <>, <When iso={n.published} /></>}</div></li>
+          );
+        })}</ul>
+      )}
+      {data.errors.length > 0 && <p className="small muted gap-top">Not fetched: {data.errors.join(", ")}</p>}
+    </section>
+  );
+}
 
 function ExposureStrip({ d }: { d: Dash }) {
   const total = LEVELS.reduce((a, s) => a + (d.severity[s] ?? 0), 0);
@@ -109,6 +137,7 @@ export default function Dashboard() {
           </section>
         </div>
         <div className="stack">
+          <SecurityNews />
           <section className="card">
             <div className="card-head"><h2>End of life</h2><Link to="/fix" className="small">Upgrade advice</Link></div>
             <ul className="meter-list">

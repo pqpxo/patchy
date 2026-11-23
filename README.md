@@ -37,6 +37,7 @@ Self-hosted software inventory and vulnerability tracker for a home lab. Registe
 - **Linux agent**: one read-only Python script on a systemd timer. It sends reports outbound over HTTPS using a revocable per-host token, lists Docker containers and software added to the base OS, can scan the packages inside container images, and can be asked to rescan from the host page.
 - **Vulnerabilities**: OSV matching with evidence, NVD product (CPE) matching for servers and runtimes, CISA KEV flags, FIRST EPSS exploit likelihood, NVD scores, fixed versions and remediation taken from the advisory.
 - **End of life**: support dates from endoflife.date for runtimes, frameworks, servers and host operating systems.
+- **Security news**: the 5 newest posts from security news feeds (RSS or Atom) on the Overview. The Hacker News by default; set `NEWS_FEEDS` to choose your own.
 - **Fixes**: open findings grouped into the fewest upgrade steps per host, repository and manifest, with a copy-paste command where it's safe to give one.
 - **GitHub Dependabot**: cross-checks each repository's Dependabot alerts against Patchy's own findings.
 - **Per-source schedules**: switch each source on or off and choose how often it refreshes, from Settings.
@@ -104,6 +105,7 @@ All settings are environment variables in `.env`. See [.env.example](.env.exampl
 | `NVD_CPE_MAX_PER_REFRESH` | `100` | Cap on NVD product lookups per refresh |
 | `FEED_REFRESH_HOURS` | `24` | Default schedule for every source (end-of-life defaults to weekly). `0` = manual only. Settings overrides it per source |
 | `FEED_STALE_HOURS` | `72` | After this, results are flagged stale |
+| `NEWS_FEEDS` | The Hacker News | Comma-separated https RSS or Atom feeds for **Security news** on the Overview, fetched hourly by the worker. Empty turns the card off. Other good feeds: `https://www.bleepingcomputer.com/feed/`, `https://isc.sans.edu/rssfeed.xml` |
 | `OSV_MAX_*`, `NVD_MAX_PER_REFRESH` | see example | Hard caps on requests per refresh |
 | `AGENT_MAX_REPORT_BYTES` | `33554432` (32 MB) | Largest agent report accepted. Image package lists make reports bigger |
 | `REPO_MAX_FILE_BYTES` / `REPO_MAX_TOTAL_BYTES` / `REPO_MAX_MANIFESTS` / `REPO_SCAN_TIMEOUT_SECONDS` | 5 MB / 50 MB / 300 / 180 | Repository scan limits |
@@ -250,6 +252,7 @@ Debian, Raspberry Pi OS and Ubuntu packages are matched against OSV's distro adv
 | [FIRST EPSS](https://www.first.org/epss/) | Probability each CVE is exploited in the next 30 days. Drives the *Priority* sort and *Fix first* list | No key. 100 CVEs per request | `EPSS_ENABLED` |
 | [endoflife.date](https://endoflife.date) | Support and end-of-life dates for components and host OSes | One download per refresh | `EOL_ENABLED` |
 | [GitHub Dependabot](https://docs.github.com/en/code-security/dependabot/dependabot-alerts) | Repository alerts, cross-checked against Patchy's findings | `GITHUB_TOKEN` rate limit | `DEPENDABOT_ENABLED` |
+| Security news feeds | The Security news card on the Overview. Only titles, links and dates are kept, and only https links | One download per feed per hour, up to 2 MB each. Your browser never contacts the feed | `NEWS_FEEDS` |
 
 - Each source has its own **schedule** (Settings, Sources and schedule): manual, hourly, every 3, 6 or 12 hours, daily, every 2 or 3 days, or weekly. The worker refreshes whichever sources are due, then re-matches the inventory.
 - **Refresh now** in Settings refreshes everything or a single source (at most 12 an hour).

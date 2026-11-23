@@ -9,13 +9,14 @@ import time
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from . import __version__, alerts, repo_scanner, sources, vulns
+from . import __version__, alerts, news, repo_scanner, sources, vulns
 from .db import SessionLocal, utcnow
 from .models import AppSetting, ScanRun
 
 log = logging.getLogger("patchy.worker")
 HEARTBEAT = pathlib.Path("/tmp/patchy-worker-heartbeat")
 ALERT_EVERY = 300  # seconds between alert checks
+NEWS_EVERY = 3600  # seconds between news feed fetches
 
 
 def enqueue(db: Session, kind: str, *, repository_id=None, params=None) -> tuple[ScanRun, bool]:
@@ -91,9 +92,17 @@ def main() -> None:
         db.merge(AppSetting(key="worker", value={"version": __version__, "started_at": utcnow().isoformat()}))
         db.commit()
     log.info("worker %s started", __version__)
-    next_alert = 0.0
+    next_alert = next_news = 0.0
     while not stop:
         HEARTBEAT.touch()
+        if time.monotonic() >= next_news:
+            next_news = time.monotonic() + NEWS_EVERY
+            with SessionLocal() as db:
+                try:
+                    news.refresh(db)
+                except Exception:  # news is a nicety; never let it stop scans
+                    db.rollback()
+                    log.exception("news fetch failed")
         if time.monotonic() >= next_alert:
             next_alert = time.monotonic() + ALERT_EVERY
             with SessionLocal() as db:
