@@ -10,8 +10,10 @@ interface SettingsData {
   repo_limits: Record<string, number>; hour_choices: number[]; version: string;
   worker: { version: string; started_at: string } | null;
   coverage: { local_version_comparison: string[]; osv_queried: string[]; nvd_products?: string; inventory_only: string[] };
-  alerts: AlertsData;
+  alerts: AlertsData; news: NewsSettings;
 }
+
+interface NewsSettings { feeds: string[]; default: string[]; custom: boolean }
 
 interface AlertEvents { kev: boolean; critical: boolean; eol: boolean; silent_hours: number }
 interface AlertField { env: string; secret: boolean; source: "env" | "ui" | null; value: string | null }
@@ -150,6 +152,38 @@ function Sources({ choices }: { choices: number[] }) {
         })}
       </div>
     </section>
+  );
+}
+
+function NewsFeeds({ n, onSaved }: { n: NewsSettings; onSaved: () => void }) {
+  const [text, setText] = useState(n.feeds.join("\n"));
+  const [busy, setBusy] = useState(false);
+  const lines = text.split(/\s+/).filter(Boolean);
+  const save = async (feeds: string[] | null) => {
+    setBusy(true);
+    try {
+      const r = await put<NewsSettings>("/api/settings/news", { feeds });
+      setText(r.feeds.join("\n"));
+      toast(r.feeds.length ? "News feeds saved. The Overview updates in a few seconds." : "Security news turned off.");
+      onSaved();
+    } catch (e) { toast(errText(e), "bad"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <form className="card" onSubmit={(e) => { e.preventDefault(); save(lines); }}>
+      <h2>Security news</h2>
+      <p className="small muted">RSS or Atom feeds for the news card on the Overview, one https address per line, up to 10.
+        Leave it empty to hide the card. {n.custom ? "This list replaces NEWS_FEEDS." : <>Using <code>NEWS_FEEDS</code> until you save.</>}</p>
+      <Field label="Feeds" error={lines.length > 10 ? "Up to 10 feeds." : undefined}>
+        <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} maxLength={5500}
+          placeholder={n.default[0] ?? "https://example.com/feed.xml"} />
+      </Field>
+      <div className="actions">
+        <button className="btn primary small" disabled={busy || lines.length > 10}>Save</button>
+        {n.custom && <button type="button" className="btn small" disabled={busy} onClick={() => save(null)}
+          title={n.default.length ? n.default.join(", ") : "NEWS_FEEDS is empty"}>Use NEWS_FEEDS</button>}
+      </div>
+    </form>
   );
 }
 
@@ -420,7 +454,7 @@ export default function SettingsPage() {
               : <>The worker hasn't checked in since this update, so sources may not refresh. If this stays, run this on the server, in the Patchy folder:</>}</p>
             <CodeBlock code="docker compose up -d --force-recreate worker" />
           </div>}
-          {t === "sources" && (s.data ? <Sources choices={s.data.hour_choices} /> : <Skeleton />)}
+          {t === "sources" && (s.data ? <><Sources choices={s.data.hour_choices} /><NewsFeeds n={s.data.news} onSaved={s.reload} /></> : <Skeleton />)}
           {t === "alerts" && (s.data ? <Alerts a={s.data.alerts} onChange={s.reload} /> : <Skeleton />)}
           {t === "system" && (s.data ? <System s={s.data} /> : <Skeleton />)}
           {t === "account" && <Account />}

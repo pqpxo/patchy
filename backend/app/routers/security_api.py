@@ -18,7 +18,8 @@ from ..agent_ingest import Report, ingest
 from ..config import settings
 from ..db import get_db, utcnow
 from ..models import Advisory, AppSetting, AuditLog, Component, FeedStatus, Finding, Host, Repository, ScanRun, User
-from ..schemas import AuditOut, FeedOut, FindingOut, FindingStatusIn, Page, RefreshIn, ScanRunOut, SourceIn, AlertsIn, AlertDestinationsIn
+from ..schemas import (AlertDestinationsIn, AlertsIn, AuditOut, FeedOut, FindingOut, FindingStatusIn, NewsFeedsIn, Page,
+                       RefreshIn, ScanRunOut, SourceIn)
 from ..security import audit, authenticate_agent, client_ip, limiter, require_user
 from ..worker import enqueue
 from .common import OPEN, bundled_agent_version, finding_out, paginate, repo_label
@@ -285,6 +286,8 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(require_user))
         "repo_limits": {"max_file_bytes": settings.repo_max_file_bytes, "max_total_bytes": settings.repo_max_total_bytes,
                         "max_manifests": settings.repo_max_manifests, "timeout_seconds": settings.repo_scan_timeout},
         "cookie_secure": settings.cookie_secure,
+        "news": {"feeds": news.feeds(db), "default": news.env_feeds(),
+                 "custom": db.get(AppSetting, "news_feeds") is not None},
         "alerts": {"destinations": alerts.destinations(alerts.values(db)), "fields": alerts.fields(db),
                    "events": alerts.config(db), "status": alerts.status(db),
                    "silent_choices": list(alerts.SILENT_CHOICES)},
@@ -293,7 +296,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(require_user))
             "osv_queried": sorted(m.OSV_ECOSYSTEMS),
             "nvd_products": "Servers, runtimes and manual assets with a known CPE (possible matches)",
             "inventory_only": ["container images (end-of-life only)", "web server configs",
-                               "RPM distros other than Rocky/Alma", "NuGet (no manifest parser yet)"],
+                               "RPM distros other than Rocky/Alma"],
         },
     }
 
@@ -312,6 +315,15 @@ def update_sources(body: dict[str, SourceIn], request: Request, db: Session = De
     audit(db, user.username, "settings.sources", "settings", "sources", changes, client_ip(request))
     db.commit()
     return result
+
+
+@router.put("/settings/news")
+def update_news_feeds(body: NewsFeedsIn, request: Request, db: Session = Depends(get_db),
+                      user: User = Depends(require_user)) -> dict:
+    urls = news.save_feeds(db, body.feeds)
+    audit(db, user.username, "settings.news", "settings", "news", {"feeds": body.feeds}, client_ip(request))
+    db.commit()
+    return {"feeds": urls, "default": news.env_feeds(), "custom": body.feeds is not None}
 
 
 @router.put("/settings/alerts")

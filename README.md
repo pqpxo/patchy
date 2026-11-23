@@ -37,11 +37,12 @@ Self-hosted software inventory and vulnerability tracker for a home lab. Registe
 - **Linux agent**: one read-only Python script on a systemd timer. It sends reports outbound over HTTPS using a revocable per-host token, lists Docker containers and software added to the base OS, can scan the packages inside container images, and can be asked to rescan from the host page.
 - **Vulnerabilities**: OSV matching with evidence, NVD product (CPE) matching for servers and runtimes, CISA KEV flags, FIRST EPSS exploit likelihood, NVD scores, fixed versions and remediation taken from the advisory.
 - **End of life**: support dates from endoflife.date for runtimes, frameworks, servers and host operating systems.
-- **Security news**: the 5 newest posts from security news feeds (RSS or Atom) on the Overview. The Hacker News by default; set `NEWS_FEEDS` to choose your own.
+- **Security news**: the 5 newest posts from security news feeds (RSS or Atom) on the Overview. The Hacker News by default; choose your own under **Settings > Sources and schedule** (or `NEWS_FEEDS`).
 - **Fixes**: open findings grouped into the fewest upgrade steps per host, repository and manifest, with a copy-paste command where it's safe to give one.
 - **Exposure ranking**: findings in software that listens on the network, or in a container that publishes a port, rank above ones nothing can reach.
 - **Trend**: open findings over the last 90 days on the Overview, with the change over 30 days. Hover for each day's critical and high counts.
 - **Export**: findings as CSV (with the current filters) from Vulnerabilities or a Findings tab, and a CycloneDX 1.5 SBOM with open vulnerabilities for a host, a container image or a repository. Every export is audit-logged.
+- **Newer images** (optional, off by default): flags containers whose tag now points at a newer build on Docker Hub, GHCR, Quay or another public registry.
 - **GitHub Dependabot**: cross-checks each repository's Dependabot alerts against Patchy's own findings.
 - **Per-source schedules**: switch each source on or off and choose how often it refreshes, from Settings.
 - **Interface**: 18 colour schemes with day and night modes, 6 font styles, compact density, sortable tables with a column chooser, quick search (Ctrl+K). Version and changelog in Settings.
@@ -108,7 +109,8 @@ All settings are environment variables in `.env`. See [.env.example](.env.exampl
 | `NVD_CPE_MAX_PER_REFRESH` | `100` | Cap on NVD product lookups per refresh |
 | `FEED_REFRESH_HOURS` | `24` | Default schedule for every source (end-of-life defaults to weekly). `0` = manual only. Settings overrides it per source |
 | `FEED_STALE_HOURS` | `72` | After this, results are flagged stale |
-| `NEWS_FEEDS` | The Hacker News | Comma-separated https RSS or Atom feeds for **Security news** on the Overview, fetched hourly by the worker. Empty turns the card off. Other good feeds: `https://www.bleepingcomputer.com/feed/`, `https://isc.sans.edu/rssfeed.xml` |
+| `IMAGE_UPDATES_ENABLED` | `false` | New in 1.13. Checks running containers' tags against public registries once a day. Can also be switched on in Settings |
+| `NEWS_FEEDS` | The Hacker News | Comma-separated https RSS or Atom feeds for **Security news** on the Overview, fetched hourly by the worker. Empty turns the card off. A list saved in Settings replaces this. Other good feeds: `https://www.bleepingcomputer.com/feed/`, `https://isc.sans.edu/rssfeed.xml` |
 | `OSV_MAX_*`, `NVD_MAX_PER_REFRESH` | see example | Hard caps on requests per refresh |
 | `AGENT_MAX_REPORT_BYTES` | `33554432` (32 MB) | Largest agent report accepted. Image package lists make reports bigger |
 | `REPO_MAX_FILE_BYTES` / `REPO_MAX_TOTAL_BYTES` / `REPO_MAX_MANIFESTS` / `REPO_SCAN_TIMEOUT_SECONDS` | 5 MB / 50 MB / 300 / 180 | Repository scan limits |
@@ -165,6 +167,7 @@ Supported files:
 | Packagist | `composer.lock` | `composer.json` |
 | Maven | `pom.xml` (literal and `${property}` versions), `build.gradle(.kts)`, `gradle.lockfile` | version ranges |
 | RubyGems | `Gemfile.lock` | |
+| NuGet | `packages.lock.json`, `packages.config`, `PackageReference` and `PackageVersion` in `*.csproj`, `*.fsproj`, `*.vbproj`, `Directory.Packages.props` | version ranges and floating `*` versions |
 | Inventory only | `Dockerfile` and compose `image:` tags, `.nvmrc`, `.python-version`, `.tool-versions`, `runtime.txt`, nginx/Apache/Caddy config files, GitHub language stats | |
 
 A lockfile in the same folder takes precedence over its manifest's looser constraints. Vendored `node_modules/` and `vendor/` trees are skipped.
@@ -255,6 +258,7 @@ Debian, Raspberry Pi OS and Ubuntu packages are matched against OSV's distro adv
 | [FIRST EPSS](https://www.first.org/epss/) | Probability each CVE is exploited in the next 30 days. Drives the *Priority* sort and *Fix first* list | No key. 100 CVEs per request | `EPSS_ENABLED` |
 | [endoflife.date](https://endoflife.date) | Support and end-of-life dates for components and host OSes | One download per refresh | `EOL_ENABLED` |
 | [GitHub Dependabot](https://docs.github.com/en/code-security/dependabot/dependabot-alerts) | Repository alerts, cross-checked against Patchy's findings | `GITHUB_TOKEN` rate limit | `DEPENDABOT_ENABLED` |
+| Container registries | **Newer image** badge on a host's containers. Off by default. Only Docker Hub, GHCR, lscr.io, Quay, GCR, MCR, GitLab, ECR Public and registry.k8s.io are asked, anonymously; locally built compose images and private registries are skipped | One HEAD request per image a day; the manifest is only downloaded when the tag has moved, so it stays well inside Docker Hub's anonymous limit | `IMAGE_UPDATES_ENABLED` |
 | Security news feeds | The Security news card on the Overview. Only titles, links and dates are kept, and only https links | One download per feed per hour, up to 2 MB each. Your browser never contacts the feed | `NEWS_FEEDS` |
 
 - Each source has its own **schedule** (Settings, Sources and schedule): manual, hourly, every 3, 6 or 12 hours, daily, every 2 or 3 days, or weekly. The worker refreshes whichever sources are due, then re-matches the inventory.
@@ -416,7 +420,7 @@ Restore into a fresh stack with `gunzip -c file.sql.gz | docker compose exec -T 
 
 ## Known limitations
 
-- Version comparison is done locally only for PyPI, npm, Go, crates.io, Debian and Ubuntu. Maven, Packagist, RubyGems, Alpine, Rocky and Alma rely on OSV's server-side version match. NuGet has no parser yet.
+- Version comparison is done locally only for PyPI, npm, Go, crates.io, Debian and Ubuntu. Maven, Packagist, RubyGems, NuGet, Alpine, Rocky and Alma rely on OSV's server-side version match.
 - Container image scanning sees what Syft sees: packages from distro databases and language manifests. Static binaries with no package metadata, and images not used by a container, aren't checked. Web-server configs get end-of-life tracking only.
 - "Added software" is a heuristic. Some OS packages marked as manually installed by the image builder can still show, especially on Raspberry Pi OS, which keeps no installer package list. Added apt packages are vulnerability-checked as OS packages, so third-party ones such as Plex usually have no advisories in OSV.
 - NVD product matching only knows products with a curated or endoflife.date CPE, or one you set on a manual asset. Its results are possible matches, not confirmed.

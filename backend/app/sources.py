@@ -14,7 +14,7 @@ from .db import utcnow
 from .models import AppSetting, FeedStatus
 
 # Refresh order matters: matching needs OSV/NVD/EOL data, EPSS/NVD severity/Dependabot need findings.
-ORDER = ("kev", "osv", "nvd_cpe", "eol", "epss", "nvd", "dependabot")
+ORDER = ("kev", "osv", "nvd_cpe", "eol", "epss", "nvd", "dependabot", "images")
 BEFORE_MATCH = ("kev", "osv", "nvd_cpe", "eol")
 HOUR_CHOICES = (0, 1, 3, 6, 12, 24, 48, 72, 168)  # 0 = manual refresh only
 
@@ -28,6 +28,9 @@ INFO = {
     "nvd": ("NVD severity", "Fills in CVSS scores for advisories that don't carry one. Slow without NVD_API_KEY."),
     "dependabot": ("GitHub Dependabot", "Cross-checks each scanned repository's Dependabot alerts against "
                                         "Patchy's findings."),
+    "images": ("Container image updates", "Asks Docker Hub, GHCR, Quay and other public registries whether each running "
+                                          "container's tag now points at a newer build. Off by default; Diun and "
+                                          "Watchtower do this too."),
 }
 
 
@@ -38,6 +41,7 @@ def _defaults() -> dict[str, tuple[bool, int]]:
         "nvd_cpe": (settings.nvd_cpe_enabled, hours), "eol": (settings.eol_enabled, 168 if hours else 0),
         "epss": (settings.epss_enabled, hours), "nvd": (settings.nvd_enabled, hours),
         "dependabot": (settings.dependabot_enabled, hours),
+        "images": (settings.image_updates_enabled, 24 if hours else 0),
     }
 
 

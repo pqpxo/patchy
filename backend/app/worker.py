@@ -95,9 +95,9 @@ def main() -> None:
     next_alert = next_news = 0.0
     while not stop:
         HEARTBEAT.touch()
-        if time.monotonic() >= next_news:
-            next_news = time.monotonic() + NEWS_EVERY
-            with SessionLocal() as db:
+        with SessionLocal() as db:
+            if time.monotonic() >= next_news or news.pending(db):  # pending: the feed list was just changed
+                next_news = time.monotonic() + NEWS_EVERY
                 try:
                     news.refresh(db)
                 except Exception:  # news is a nicety; never let it stop scans

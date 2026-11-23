@@ -120,8 +120,9 @@ function ImageFindings({ s, c, host, onScan }: { s?: ImageSummary; c: Container;
   </>;
 }
 
-function ContainersCard({ host, items, images, docker, onChange }: {
-  host: Host; items: Container[]; images: Record<string, ImageSummary>; docker: boolean; onChange: () => void;
+function ContainersCard({ host, items, images, updates, docker, onChange }: {
+  host: Host; items: Container[]; images: Record<string, ImageSummary>; updates: Record<string, { checked_at: string | null }>;
+  docker: boolean; onChange: () => void;
 }) {
   const scan = async (imageId: string) => {
     try { await post(`/api/hosts/${host.id}/images/scan`, { image_id: imageId }); toast("Scan requested. The agent picks it up within 5 minutes."); onChange(); }
@@ -149,7 +150,9 @@ function ContainersCard({ host, items, images, docker, onChange }: {
             <tr key={c.name ?? i}>
               <td><strong>{c.name ?? "unnamed"}</strong>
                 {c.compose_project && <div className="cell-sub">{c.compose_project}{c.compose_service ? ` / ${c.compose_service}` : ""}</div>}</td>
-              <td><span className="ver">{c.image}</span>{c.version && <div className="cell-sub">version {c.version}</div>}</td>
+              <td><span className="ver">{c.image}</span>
+                {updates[c.name ?? c.image] && <> <span className="badge tone-info" title="The registry has a newer build of this tag. Pull and recreate the container to use it.">Newer image</span></>}
+                {c.version && <div className="cell-sub">version {c.version}</div>}</td>
               <td className="nowrap"><ImageFindings s={images[c.image]} c={c} host={host} onScan={scan} /></td>
               <td><span className={`badge ${c.state === "running" ? "tone-good" : "tone-muted"}`}>{c.state ? c.state[0].toUpperCase() + c.state.slice(1) : "Unknown"}</span>
                 {c.status && <div className="cell-sub">{c.status}</div>}</td>
@@ -297,7 +300,8 @@ function AgentPanel({ host, onChange }: { host: Host; onChange: () => void }) {
 }
 
 type HostData = { host: Host; services: { name: string | null; protocol: string | null; listen_ip: string | null; port: number | null }[];
-  paths: { root: string; path: string; is_dir: boolean }[]; runs: ScanRun[]; containers: Container[]; apps: AddedApp[]; images: Record<string, ImageSummary> };
+  paths: { root: string; path: string; is_dir: boolean }[]; runs: ScanRun[]; containers: Container[]; apps: AddedApp[]; images: Record<string, ImageSummary>;
+  image_updates?: Record<string, { checked_at: string | null }> };
 
 export function HostDetailPage({ id }: { id: number }) {
   const { data, error, reload } = useLoad(() => get<HostData>(`/api/hosts/${id}`), [id],
@@ -376,7 +380,7 @@ export function HostDetailPage({ id }: { id: number }) {
             {units.length === 0 ? <p className="muted">None reported.</p> : <p className="small">{units.map((u) => u.name).join(", ")}</p>}
           </div>
         </section>
-        <ContainersCard host={h} items={data.containers} images={data.images ?? {}} docker={units.some((u) => u.name?.startsWith("docker."))} onChange={reload} />
+        <ContainersCard host={h} items={data.containers} images={data.images ?? {}} updates={data.image_updates ?? {}} docker={units.some((u) => u.name?.startsWith("docker."))} onChange={reload} />
         <AppsCard host={h} items={data.apps} />
         <section className="card wide">
           <h2>Application directories</h2>
