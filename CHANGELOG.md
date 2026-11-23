@@ -2,6 +2,11 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.9.0 - 2026-11-23
+
+### Added
+- **Security news** on the Overview, above End of life: the 5 newest posts from security news feeds, linked to the full article. The worker fetches the feeds hourly, so your browser never contacts them. The Hacker News by default; set `NEWS_FEEDS` to a comma-separated list of https RSS or Atom feeds, or leave it empty to turn the card off.
+
 ## 1.8.0 - 2026-11-23
 
 ### Added

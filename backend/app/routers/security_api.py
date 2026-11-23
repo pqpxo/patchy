@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from .. import __version__, aiprompt, alerts, dependabot, fixplan, sources, vulns
+from .. import __version__, aiprompt, alerts, dependabot, fixplan, news, sources, vulns
 from .. import matching as m
 from ..agent_ingest import Report, ingest
 from ..config import settings
@@ -107,6 +107,12 @@ def set_finding_status(finding_id: int, body: FindingStatusIn, request: Request,
 
 
 # ---------------- dashboard ----------------
+
+@router.get("/news")
+def get_news(db: Session = Depends(get_db), _: User = Depends(require_user)) -> dict:
+    """The newest security news posts, as last fetched by the worker."""
+    return news.stored(db)
+
 
 @router.get("/dashboard")
 def dashboard(db: Session = Depends(get_db), _: User = Depends(require_user)) -> dict:
