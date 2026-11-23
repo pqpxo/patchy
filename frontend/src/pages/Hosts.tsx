@@ -102,9 +102,11 @@ const agentAtLeast = (v: string | null | undefined, major: number, minor: number
 const ignoresRescan = (v?: string | null) => !!v && !agentAtLeast(v, 1, 2);
 
 function ImageFindings({ s, c, host, onScan }: { s?: ImageSummary; c: Container; host: Host; onScan: (imageId: string) => void }) {
+  const known = host.image_scans?.[c.image];
   if (!s) {
     if (c.image_id && host.image_scan_requests?.includes(c.image_id))
-      return <><span className="badge tone-info">Queued</span><div className="cell-sub">within 5 minutes</div></>;
+      return <><span className="badge tone-info">Queued</span>
+        <div className="cell-sub">{known && known.image_id !== c.image_id ? "new image, " : ""}within 5 minutes</div></>;
     if (c.image_id && host.agent && !host.agent.revoked_at && agentAtLeast(host.agent.agent_version, 1, 4))
       return <button className="btn small" onClick={() => onScan(c.image_id!)} title="List this image's packages on the host and check them for vulnerabilities">Scan</button>;
     return <span className="muted">Not scanned</span>;
@@ -112,7 +114,8 @@ function ImageFindings({ s, c, host, onScan }: { s?: ImageSummary; c: Container;
   return <>
     {s.total ? <span><Sev s={s.worst} /> <span className="num">{s.total}</span> <Kev on={s.kev} /></span>
       : <span className="badge tone-good">None found</span>}
-    <div className="cell-sub">{s.packages} package{s.packages === 1 ? "" : "s"}</div>
+    <div className="cell-sub">{s.packages} package{s.packages === 1 ? "" : "s"}
+      {known && known.image_id === c.image_id && <>, scanned <When iso={known.scanned_at} /></>}</div>
   </>;
 }
 
@@ -124,9 +127,17 @@ function ContainersCard({ host, items, images, docker, onChange }: {
     catch (e) { toast(errText(e), "bad"); }
   };
   const canScan = !!host.agent && !host.agent.revoked_at && agentAtLeast(host.agent.agent_version, 1, 4);
+  const unscanned = new Set(items.filter((c) => c.image_id && !images[c.image] && !host.image_scan_requests?.includes(c.image_id))
+    .map((c) => c.image_id)).size;
+  const scanAll = async () => {
+    try { await post(`/api/hosts/${host.id}/images/scan-all`, {}); toast(`${unscanned} image${unscanned === 1 ? "" : "s"} queued. The agent starts within 5 minutes; anything it can't finish in one run carries over to the next.`); onChange(); }
+    catch (e) { toast(errText(e), "bad"); }
+  };
   return (
     <section className="card wide">
-      <h2>Containers <span className="num muted">{items.length}</span></h2>
+      <div className="card-head"><h2>Containers <span className="num muted">{items.length}</span></h2>
+        {canScan && unscanned > 0 && <button className="btn small" onClick={scanAll}
+          title="Queue every image that hasn't been scanned. Each one uses a CPU core on the host while it is read.">Scan all ({unscanned})</button>}</div>
       {items.length === 0 ? (docker ? <>
         <p className="muted">None reported. To list containers, give the agent Docker access on the host (root-equivalent), then press Rescan:</p>
         <CodeBlock code={DOCKER_ON} />
@@ -154,7 +165,7 @@ function ContainersCard({ host, items, images, docker, onChange }: {
         </table></div>
       )}
       {items.length > 0 && <p className="muted small gap-top">{canScan
-        ? "Scan lists an image's packages on the host and checks them for vulnerabilities. The agent starts within 5 minutes and a large image can take a few more. It needs Syft on the host; the ? on the Agent card shows how to add it."
+        ? "Scan lists an image's packages on the host and checks them for vulnerabilities. The agent starts within 5 minutes and a large image can take a few more. When a scanned image is replaced by a pull or rebuild, the new one is scanned automatically. It needs Syft on the host; the ? on the Agent card shows how to add it."
         : "To scan container images on request, update the agent to 1.4 or later from the Agent card."}</p>}
     </section>
   );
@@ -214,7 +225,7 @@ function AgentHelp() {
       <h3>Docker containers</h3>
       <p>Reading the Docker socket needs the docker group, which is root-equivalent, so it is off unless you allow it at install time. To turn it on later:</p>
       <CodeBlock code={DOCKER_ON} />
-      <p>With containers on, <strong>Scan</strong> on a container asks the agent to list the packages inside its image with Syft, so they are checked for vulnerabilities too. Each image is scanned once and kept until it changes. To scan every new image automatically instead, set <code>"image_scan": "auto"</code> under <code>collect</code> in the config. The installer offers Syft once. To add it later:</p>
+      <p>With containers on, <strong>Scan</strong> on a container asks the agent to list the packages inside its image with Syft, so they are checked for vulnerabilities too. Each image is scanned once and kept until it changes. When a pull or rebuild (Watchtower, <code>docker compose pull</code>) replaces a scanned image, Patchy queues the new one automatically, so its scan isn't lost. <strong>Scan all</strong> queues every image not yet scanned. To scan every new image automatically instead, set <code>"image_scan": "auto"</code> under <code>collect</code> in the config. The installer offers Syft once. To add it later:</p>
       <CodeBlock code={SYFT_ON} />
       <h3>Rotate or revoke</h3>
       <p><strong>Rotate</strong> issues a new token and stops the old one at once; paste the new token into <code>/etc/patchy-agent/token</code>. <strong>Revoke</strong> stops the agent reporting.</p>
