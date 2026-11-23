@@ -5,7 +5,7 @@ import { fmtDate, safeUrl } from "../format";
 import { usePrefs } from "../prefs";
 import { AssetTable, FindingTable } from "../tables";
 import {
-  CodeBlock, Copy, DangerButton, DataTable, Empty, Eol, ErrorBox, Exposure, Field, KV, Kev, Link, PageHead, Pager, RunBanner, Sev, Skeleton, Status,
+  CodeBlock, DangerButton, DataTable, Empty, Eol, ErrorBox, Exposure, Field, KV, Kev, Link, PageHead, Pager, RunBanner, Sev, Skeleton, Status,
   TAB_PAGE, TabPager, Tabs, When, errText, fieldErrors, navigate, toast, useLoad, usePage, useQueryParam, useSort, type Col,
 } from "../ui";
 import { FixPlan } from "./Fix";
@@ -287,7 +287,7 @@ function AgentPanel({ host, onChange }: { host: Host; onChange: () => void }) {
       {token && (
         <div className="token-box">
           <div className="alert warn"><p><strong>Copy this token now.</strong> It is shown once; Patchy stores only a hash.</p></div>
-          <div className="row"><code className="block grow">{token}</code><Copy text={token} /></div>
+          <CodeBlock code={token} />
           <p className="small">Install on the host (needs python3 and systemd). Paste the whole block; the installer then asks for the token, so it stays out of shell history:</p>
           <CodeBlock code={install} />
           <p className="small muted">To read the scripts before installing, run the first five lines, then <code>less patchy_agent.py install.sh</code> (press <kbd>q</kbd> to quit), then the last line.</p>

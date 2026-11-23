@@ -236,6 +236,7 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(require_user)) ->
                           "target": repo_label(r.repository) if r.repository else (r.host.name if r.host else None)}
                          for r in recent],
         "hosts": db.scalar(select(func.count()).select_from(Host)),
+        "alerts_paused": alerts.config(db)["paused"],
         "repositories": db.scalar(select(func.count()).select_from(Repository)),
         "demo_data": bool(db.scalar(select(func.count()).select_from(Host).where(Host.is_demo.is_(True)))),
     }

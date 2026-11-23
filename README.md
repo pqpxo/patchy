@@ -338,7 +338,7 @@ Patchy's worker checks every 5 minutes and sends **one** message listing what's 
 
 Each thing alerts once. The first check after an upgrade only records what is already there, so you aren't sent the backlog. If every destination fails, the same items are tried again at the next check.
 
-Add destinations in **Settings > Alerts** (webhook, ntfy, Pushover or email), choose which events alert, then press **Send test**. Every destination that's set up gets every alert.
+Add destinations in **Settings > Alerts** (webhook, ntfy, Pushover or email), choose which events alert, then press **Send test**. Every destination that's set up gets every alert. To stop all alerts for a while, use the bell at the bottom of the sidebar; whatever turns up while they are paused is not sent later.
 
 Destinations can also be set in `.env` (see the table under [Configuration](#configuration)). A variable set in `.env` takes priority and is locked in the UI, which suits anyone who keeps all secrets out of the database.
 
