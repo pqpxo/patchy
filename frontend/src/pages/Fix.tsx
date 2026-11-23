@@ -81,7 +81,7 @@ export function FixPlan({ hostId, repositoryId }: { hostId?: number; repositoryI
   }
   return (
     <div className="plan">
-      {(hostId || repositoryId) && <AskAi hostId={hostId} repositoryId={repositoryId} />}
+      {(hostId || repositoryId) && <AskAi key={`${hostId}-${repositoryId}`} hostId={hostId} repositoryId={repositoryId} />}
       <div className="plan-summary card">
         <div><b>{s.upgrade_steps}</b><span>upgrade steps</span></div>
         <div><b>{s.components}</b><span>components affected</span></div>
