@@ -5,7 +5,7 @@ import { safeUrl } from "../format";
 import { usePrefs } from "../prefs";
 import { AssetTable, FindingTable } from "../tables";
 import {
-  DangerButton, DataTable, Empty, ErrorBox, Exposure, Field, KV, Link, PageHead, Pager, RunBanner, Sev, Skeleton, Status, Tabs, When,
+  DangerButton, DataTable, Empty, ErrorBox, Exposure, Field, KV, Link, PageHead, Pager, RunBanner, Sev, Skeleton, Status, TAB_PAGE, TabPager, Tabs, When, usePage,
   errText, fieldErrors, navigate, toast, useLoad, useQueryParam, useSort, type Col,
 } from "../ui";
 import { FixPlan } from "./Fix";
@@ -115,10 +115,12 @@ export function RepoDetailPage({ id }: { id: number }) {
   const t = tab || "overview";
   const aSort = useSort("name", "asc", true);
   const fSort = useSort("priority", "desc", true);
-  const assets = useLoad(() => t === "assets" ? get<Page<Asset>>("/api/assets", { repository_id: id, page_size: 200, sort: aSort.sort, order: aSort.order })
-    : Promise.resolve(undefined), [id, t, busy, aSort.sort, aSort.order]);
-  const findings = useLoad(() => t === "findings" ? get<Page<Finding>>("/api/findings", { repository_id: id, page_size: 200, status: ["open", "acknowledged"], sort: fSort.sort, order: fSort.order })
-    : Promise.resolve(undefined), [id, t, busy, fSort.sort, fSort.order]);
+  const [aPage, setAPage] = usePage([id, aSort.sort, aSort.order]);
+  const [fPage, setFPage] = usePage([id, fSort.sort, fSort.order]);
+  const assets = useLoad(() => t === "assets" ? get<Page<Asset>>("/api/assets", { repository_id: id, page: aPage, page_size: TAB_PAGE, sort: aSort.sort, order: aSort.order })
+    : Promise.resolve(undefined), [id, t, busy, aPage, aSort.sort, aSort.order]);
+  const findings = useLoad(() => t === "findings" ? get<Page<Finding>>("/api/findings", { repository_id: id, page: fPage, page_size: TAB_PAGE, status: ["open", "acknowledged"], sort: fSort.sort, order: fSort.order })
+    : Promise.resolve(undefined), [id, t, busy, fPage, fSort.sort, fSort.order]);
   if (error) return <ErrorBox error={error} onRetry={reload} />;
   if (!data) return <Skeleton />;
   const r = data.repository;
@@ -155,10 +157,10 @@ export function RepoDetailPage({ id }: { id: number }) {
         </section>
       </div>}
       {t === "assets" && (assets.data ? (assets.data.items.length
-        ? <AssetTable items={assets.data.items} sort={aSort} table="repo-assets" where={false} />
+        ? <><AssetTable items={assets.data.items} sort={aSort} table="repo-assets" where={false} /><TabPager data={assets.data} onPage={setAPage} /></>
         : <Empty title="Nothing detected yet." />) : <Skeleton />)}
       {t === "findings" && (findings.data ? (findings.data.items.length
-        ? <FindingTable items={findings.data.items} sort={fSort} table="repo-findings" />
+        ? <><FindingTable items={findings.data.items} sort={fSort} table="repo-findings" /><TabPager data={findings.data} onPage={setFPage} /></>
         : <Empty title="No open findings in this repository." />) : <Skeleton />)}
       {t === "fix" && <FixPlan repositoryId={id} />}
       {t === "dependabot" && <DependabotPanel d={data.dependabot} />}
