@@ -25,7 +25,7 @@ def test_every_sort_works_both_ways(auth_client, db, path, sorts):
 
 def test_source_schedule_update_is_validated_and_audited(auth_client, db):
     s = auth_client.get("/api/settings").json()
-    assert s["sources"]["osv"]["hours"] == 24 and 168 in s["hour_choices"] and s["version"] == "1.11.0"
+    assert s["sources"]["osv"]["hours"] == 24 and 168 in s["hour_choices"] and s["version"] == "1.12.0"
     assert auth_client.put("/api/settings/sources", json={"osv": {"hours": 5}}).status_code == 422
     assert auth_client.put("/api/settings/sources", json={"bogus": {"enabled": True}}).status_code == 422
     r = auth_client.put("/api/settings/sources", json={"osv": {"hours": 6}, "epss": {"enabled": False}})
@@ -43,7 +43,7 @@ def test_version_needs_login(client):
 
 def test_version_and_changelog(auth_client):
     v = auth_client.get("/api/version").json()
-    assert v["version"] == "1.11.0" and v["agent_version"] == "1.4.0" and "## 1.11.0" in v["changelog"]
+    assert v["version"] == "1.12.0" and v["agent_version"] == "1.4.0" and "## 1.12.0" in v["changelog"]
 
 
 def test_asset_cpe_is_validated(auth_client):

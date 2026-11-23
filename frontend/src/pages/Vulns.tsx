@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { get, post, type AuditEntry, type DependabotAlert, type Feed, type Finding, type Page } from "../api";
+import { get, post, qs, type AuditEntry, type DependabotAlert, type Feed, type Finding, type Page } from "../api";
 import { Icon } from "../icons";
 import { MATCH_STATUS, SEVERITIES, fmtDate, pct, safeUrl } from "../format";
 import { usePrefs } from "../prefs";
@@ -20,10 +20,13 @@ export function VulnsPage() {
   const sort = useSort("priority", "desc");
   const { pageSize } = usePrefs();
   const [search, setSearch] = useState(q);
-  const { data, error, loading, reload } = useLoad(() => get<Page<Finding>>("/api/findings", {
+  const filters = {
     severity: severity ? [severity] : undefined, status: status ? [status] : ["open", "acknowledged"],
     match_status: match ? [match] : undefined, kev: kev || undefined, host_id: hostId || undefined, q,
-    sort: sort.sort, order: sort.order, page: page || 1, page_size: pageSize,
+    sort: sort.sort, order: sort.order,
+  };
+  const { data, error, loading, reload } = useLoad(() => get<Page<Finding>>("/api/findings", {
+    ...filters, page: page || 1, page_size: pageSize,
   }), [severity, status, match, kev, hostId, q, sort.sort, sort.order, page, pageSize]);
   const feeds = useLoad(() => get<Feed[]>("/api/feeds"), []);
   const stale = feeds.data?.find((f) => f.source === "osv")?.stale;
@@ -50,7 +53,11 @@ export function VulnsPage() {
   return (
     <>
       <PageHead title="Vulnerabilities" sub="Findings from OSV and NVD, ranked by known exploitation (CISA KEV), likely exploitation (EPSS), then severity."
-        actions={<Link to="/fix" className="btn"><Icon name="fix" size={14} /> Fixes</Link>} />
+        actions={<>
+          <a className="btn" href={`/api/findings/export${qs(filters)}`} download
+            title="Download these findings, with the current filters and order, as CSV">Export CSV</a>
+          <Link to="/fix" className="btn"><Icon name="fix" size={14} /> Fixes</Link>
+        </>} />
       {stale && <div className="alert warn">OSV data is stale or has never been fetched, so this list may be incomplete. <Link to="/settings?tab=sources">Check sources</Link>.</div>}
       <ErrorBox error={error} onRetry={reload} />
       {loading && !data ? <Skeleton /> : data && <>
