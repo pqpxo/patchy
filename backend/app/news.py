@@ -25,8 +25,35 @@ MAX_BYTES = 2_000_000
 ATOM = "{http://www.w3.org/2005/Atom}"
 
 
-def feeds() -> list[str]:
+MAX_FEEDS = 10
+
+
+def env_feeds() -> list[str]:
     return [u for u in (s.strip() for s in settings.news_feeds.split(",")) if u.startswith("https://")]
+
+
+def feeds(db: Session) -> list[str]:
+    """The list saved on the Settings page, or NEWS_FEEDS until one is saved."""
+    row = db.get(AppSetting, "news_feeds")
+    return list((row.value or {}).get("urls", [])) if row else env_feeds()
+
+
+def save_feeds(db: Session, urls: list[str] | None) -> list[str]:
+    """Save the feed list (None goes back to NEWS_FEEDS) and ask the worker to fetch straight away."""
+    if urls is None:
+        if row := db.get(AppSetting, "news_feeds"):
+            db.delete(row)
+    else:
+        db.merge(AppSetting(key="news_feeds", value={"urls": list(dict.fromkeys(urls))}))
+    row = db.get(AppSetting, "news")
+    db.merge(AppSetting(key="news", value={**((row.value or {}) if row else {}), "pending": True}))
+    db.flush()
+    return feeds(db)
+
+
+def pending(db: Session) -> bool:
+    row = db.get(AppSetting, "news")
+    return bool(row and (row.value or {}).get("pending"))
 
 
 def _text(s: str | None, limit: int = 300) -> str:
@@ -92,8 +119,10 @@ def http_client() -> httpx.Client:
 
 def refresh(db: Session, client: httpx.Client | None = None) -> int:
     """Fetch every feed and keep the newest posts across them. A failing feed keeps the others' posts."""
-    urls = feeds()
+    urls = feeds(db)
     if not urls:
+        db.merge(AppSetting(key="news", value={"items": [], "errors": [], "updated_at": None}))
+        db.commit()
         return 0
     items, errors = [], []
     with (client or http_client()) as c:
@@ -122,5 +151,5 @@ def refresh(db: Session, client: httpx.Client | None = None) -> int:
 def stored(db: Session) -> dict:
     row = db.get(AppSetting, "news")
     v = (row.value or {}) if row else {}
-    return {"enabled": bool(feeds()), "items": v.get("items", []), "errors": v.get("errors", []),
+    return {"enabled": bool(feeds(db)), "items": v.get("items", []), "errors": v.get("errors", []),
             "updated_at": v.get("updated_at")}

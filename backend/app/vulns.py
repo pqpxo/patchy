@@ -453,6 +453,7 @@ def run_feed_refresh(db: Session, client: httpx.Client, mode: str = "full", only
         "epss": lambda: refresh_epss(db, client),
         "nvd": lambda: refresh_nvd(db, client),
         "dependabot": lambda: _dependabot(db, gh_client),
+        "images": lambda: _images(db),
     }
     for s in [s for s in wanted if s in sources.BEFORE_MATCH]:
         step(s, runners[s])
@@ -462,6 +463,11 @@ def run_feed_refresh(db: Session, client: httpx.Client, mode: str = "full", only
         step(s, runners[s])
     summary["sources"], summary["failed_sources"] = wanted, failed
     return summary
+
+
+def _images(db: Session) -> dict:
+    from . import registry  # registry imports this module
+    return registry.refresh(db)
 
 
 def _dependabot(db: Session, gh_client: httpx.Client | None) -> dict:

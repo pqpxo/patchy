@@ -308,6 +308,49 @@ def parse_gradle_lockfile(text: str) -> list[Parsed]:
     return out
 
 
+# ---------- .NET ----------
+
+def _xml(text: str) -> ET.Element:
+    if re.search(r"<!\s*(DOCTYPE|ENTITY)", text, re.IGNORECASE):
+        raise ValueError("XML DOCTYPE/ENTITY declarations are not allowed")
+    return ET.fromstring(text)
+
+
+def _nuget(name: str, v: str | None) -> Parsed:
+    v = (v or "").strip()
+    if not v or "$(" in v:
+        return Parsed(name, "library", "NuGet", details={"note": "version managed elsewhere or unresolved"})
+    if v[0] in "[(" or "*" in v:
+        return _spec(name, "NuGet", v)
+    return _exact(name, "NuGet", v)  # a bare NuGet version is a minimum, but restore picks exactly it
+
+
+def parse_msbuild(text: str) -> list[Parsed]:
+    """*.csproj, *.fsproj, *.vbproj and Directory.Packages.props: PackageReference and PackageVersion items."""
+    out = []
+    for el in _xml(text).iter():
+        if _strip_ns(el.tag) in ("PackageReference", "PackageVersion") and (name := el.get("Include") or el.get("Update")):
+            v = el.get("Version") or el.get("VersionOverride") or next(
+                (c.text for c in el if _strip_ns(c.tag) == "Version"), None)
+            out.append(_nuget(name.strip(), v))
+    return out
+
+
+def parse_packages_config(text: str) -> list[Parsed]:
+    return [_nuget(el.get("id", "").strip(), el.get("version")) for el in _xml(text).iter()
+            if _strip_ns(el.tag) == "package" and el.get("id")]
+
+
+def parse_nuget_lock(text: str) -> list[Parsed]:
+    """packages.lock.json: the resolved version of every package, per target framework."""
+    seen = {}
+    for deps in (json.loads(text).get("dependencies") or {}).values():
+        for name, d in (deps or {}).items():
+            if isinstance(d, dict) and d.get("type") != "Project" and d.get("resolved"):
+                seen[(name.lower(), d["resolved"])] = _exact(name, "NuGet", d["resolved"])
+    return list(seen.values())
+
+
 # ---------- Ruby ----------
 
 def parse_gemfile_lock(text: str) -> list[Parsed]:
@@ -413,6 +456,10 @@ EXACT_FILES = {
     "build.gradle.kts": parse_gradle,
     "gradle.lockfile": parse_gradle_lockfile,
     "gemfile.lock": parse_gemfile_lock,
+    "packages.config": parse_packages_config,
+    "packages.lock.json": parse_nuget_lock,
+    "directory.packages.props": parse_msbuild,
+    "directory.build.props": parse_msbuild,
     "dockerfile": parse_dockerfile,
     "docker-compose.yml": parse_compose,
     "docker-compose.yaml": parse_compose,
@@ -432,7 +479,8 @@ EXACT_FILES = {
 }
 
 LOCKFILES = {"package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
-             "uv.lock", "pipfile.lock", "cargo.lock", "composer.lock", "gradle.lockfile", "gemfile.lock"}
+             "uv.lock", "pipfile.lock", "cargo.lock", "composer.lock", "gradle.lockfile", "gemfile.lock",
+             "packages.lock.json"}
 
 
 def parser_for(path: str):
@@ -441,6 +489,8 @@ def parser_for(path: str):
         return EXACT_FILES[base]
     if re.match(r"^requirements[\w.\-]*\.(txt|in)$", base):
         return parse_requirements
+    if base.endswith((".csproj", ".fsproj", ".vbproj")):
+        return parse_msbuild
     if base.startswith("dockerfile.") or base.endswith(".dockerfile"):
         return parse_dockerfile
     if base.endswith(".conf") and "/nginx/" in f"/{path.lower()}":
