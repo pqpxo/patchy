@@ -2,6 +2,13 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.12.0 - 2026-11-23
+
+### Added
+- **Export CSV** on Vulnerabilities and on host and repository Findings tabs: the findings with the current filters and order (up to 50,000 rows), including KEV, EPSS, exposure, location and fixed versions. Cells that a spreadsheet would run as a formula are escaped.
+- **SBOM** on host and repository pages, and per scanned container image: a CycloneDX 1.5 JSON file with package URLs (deb, apk, rpm, npm, PyPI, Maven, Go, Cargo and more), file locations, exposure, and open vulnerabilities linked to the affected components.
+- Both exports are recorded in the audit log.
+
 ## 1.11.0 - 2026-11-23
 
 ### Added

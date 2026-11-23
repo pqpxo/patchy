@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { del, get, post, type Asset, type Dependabot, type Finding, type Page, type Repo, type ScanRun } from "../api";
+import { del, get, post, qs, type Asset, type Dependabot, type Finding, type Page, type Repo, type ScanRun } from "../api";
 import { Icon } from "../icons";
 import { safeUrl } from "../format";
 import { usePrefs } from "../prefs";
@@ -135,6 +135,7 @@ export function RepoDetailPage({ id }: { id: number }) {
           <button className="btn primary" disabled={busy || r.is_demo} onClick={async () => {
             try { await post(`/api/repositories/${r.id}/scan`); toast("Scan queued."); reload(); } catch (e) { toast(errText(e), "bad"); }
           }}><Icon name="refresh" size={14} /> {busy ? "Scanning…" : "Scan now"}</button>
+          <a className="btn" href={`/api/sbom?repository_id=${r.id}`} download title="CycloneDX SBOM of this repository's dependencies, with open vulnerabilities">SBOM</a>
           <DangerButton question={`Stop tracking ${r.owner}/${r.name}? Its assets and findings are deleted.`}
             onConfirm={async () => { await del(`/api/repositories/${r.id}`); toast("Repository removed."); navigate("/repositories"); }}>Delete</DangerButton>
         </>} />
@@ -160,7 +161,9 @@ export function RepoDetailPage({ id }: { id: number }) {
         ? <><AssetTable items={assets.data.items} sort={aSort} table="repo-assets" where={false} /><TabPager data={assets.data} onPage={setAPage} /></>
         : <Empty title="Nothing detected yet." />) : <Skeleton />)}
       {t === "findings" && (findings.data ? (findings.data.items.length
-        ? <><FindingTable items={findings.data.items} sort={fSort} table="repo-findings" /><TabPager data={findings.data} onPage={setFPage} /></>
+        ? <><FindingTable items={findings.data.items} sort={fSort} table="repo-findings"
+            tools={<a className="btn small" href={`/api/findings/export${qs({ repository_id: id, status: ["open", "acknowledged"], sort: fSort.sort, order: fSort.order })}`} download>Export CSV</a>} />
+          <TabPager data={findings.data} onPage={setFPage} /></>
         : <Empty title="No open findings in this repository." />) : <Skeleton />)}
       {t === "fix" && <FixPlan repositoryId={id} />}
       {t === "dependabot" && <DependabotPanel d={data.dependabot} />}
