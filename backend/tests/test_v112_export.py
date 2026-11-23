@@ -7,10 +7,10 @@ from app.models import Advisory, Component, Finding, Repository
 from tests.test_api import _enroll, _report
 
 
-def _finding(db, comp, adv_id, **adv):
+def _finding(db, comp, adv_id, fixed=("2.0",), **adv):
     db.add(Advisory(id=adv_id, affected=[], cve_ids=["CVE-2026-0001"], summary="Bad.", **adv))
     db.add(Finding(component_id=comp.id, advisory_id=adv_id, match_status="confirmed", evidence="e", remediation="r",
-                   fixed_versions=["2.0"], currently_matching=True, first_detected_at=utcnow()))
+                   fixed_versions=list(fixed), currently_matching=True, first_detected_at=utcnow()))
 
 
 def test_findings_csv_follows_the_list_filters(auth_client, db, host):
@@ -41,7 +41,7 @@ def test_sbom_for_a_host_an_image_and_a_repository(auth_client, client, host, db
     token = _enroll(auth_client, host.id)
     assert client.post("/api/agent/report", json=_report(), headers={"Authorization": f"Bearer {token}"}).status_code == 200
     lodash = db.query(Component).filter_by(host_id=host.id, name="lodash").one()
-    _finding(db, lodash, "GHSA-lo", severity="high", cvss_score=7.5)
+    _finding(db, lodash, "GHSA-lo", fixed=("1.9.1", "4.17.21"), severity="high", cvss_score=7.5)
     db.commit()
 
     r = auth_client.get("/api/sbom", params={"host_id": host.id})
@@ -57,6 +57,7 @@ def test_sbom_for_a_host_an_image_and_a_repository(auth_client, client, host, db
                      "container": "pkg:docker/library/nginx@1.27", "application": None}  # the probe has no purl
     vuln = bom["vulnerabilities"][0]
     assert vuln["id"] == "GHSA-lo" and vuln["ratings"] == [{"severity": "high", "score": 7.5}]
+    assert vuln["recommendation"] == "Upgrade lodash to 4.17.21 or later."  # not the older line's 1.9.1
     assert vuln["affects"] == [{"ref": f"component-{lodash.id}"}] and vuln["references"][0]["id"] == "CVE-2026-0001"
 
     image = auth_client.get("/api/sbom", params={"host_id": host.id, "image": "nginx:1.27"}).json()
