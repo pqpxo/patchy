@@ -17,7 +17,7 @@ from ..agent_ingest import Report, ingest
 from ..config import settings
 from ..db import get_db, utcnow
 from ..models import Advisory, AppSetting, AuditLog, Component, FeedStatus, Finding, Host, Repository, ScanRun, User
-from ..schemas import AuditOut, FeedOut, FindingOut, FindingStatusIn, Page, RefreshIn, ScanRunOut, SourceIn, AlertsIn
+from ..schemas import AuditOut, FeedOut, FindingOut, FindingStatusIn, Page, RefreshIn, ScanRunOut, SourceIn, AlertsIn, AlertDestinationsIn
 from ..security import audit, authenticate_agent, client_ip, limiter, require_user
 from ..worker import enqueue
 from .common import OPEN, bundled_agent_version, finding_out, paginate, repo_label
@@ -207,8 +207,9 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(require_user))
         "repo_limits": {"max_file_bytes": settings.repo_max_file_bytes, "max_total_bytes": settings.repo_max_total_bytes,
                         "max_manifests": settings.repo_max_manifests, "timeout_seconds": settings.repo_scan_timeout},
         "cookie_secure": settings.cookie_secure,
-        "alerts": {"destinations": alerts.destinations(), "events": alerts.config(db), "status": alerts.status(db),
-                   "silent_choices": list(alerts.SILENT_CHOICES), "patchy_url": bool(settings.patchy_url)},
+        "alerts": {"destinations": alerts.destinations(alerts.values(db)), "fields": alerts.fields(db),
+                   "events": alerts.config(db), "status": alerts.status(db),
+                   "silent_choices": list(alerts.SILENT_CHOICES)},
         "coverage": {
             "local_version_comparison": sorted(m.ECOSYSTEM_COMPARATORS),
             "osv_queried": sorted(m.OSV_ECOSYSTEMS),
@@ -245,14 +246,31 @@ def update_alerts(body: AlertsIn, request: Request, db: Session = Depends(get_db
     return result
 
 
+@router.put("/settings/alerts/destinations")
+def update_alert_destinations(body: AlertDestinationsIn, request: Request, db: Session = Depends(get_db),
+                              user: User = Depends(require_user)) -> dict:
+    changes = body.model_dump(exclude_unset=True)
+    try:
+        alerts.save_destinations(db, changes)
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from None
+    # Field names only: the values include secrets.
+    audit(db, user.username, "settings.alert_destinations", "settings", "alerts",
+          {"set": sorted(k for k, v in changes.items() if v), "removed": sorted(k for k, v in changes.items() if not v)},
+          client_ip(request))
+    db.commit()
+    return {"destinations": alerts.destinations(alerts.values(db)), "fields": alerts.fields(db)}
+
+
 @router.post("/alerts/test")
 def test_alert(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)) -> dict:
     """Send a test message to every destination now and say which worked."""
     limiter.check(f"alert-test:{user.id}", 5, 300)
-    if not any(alerts.destinations().values()):
-        raise HTTPException(409, "No alert destination is set. Add one to .env and restart Patchy.")
+    v = alerts.values(db)
+    if not any(alerts.destinations(v).values()):
+        raise HTTPException(409, "No alert destination is set. Add one above or in .env.")
     title = "Patchy: test alert"
-    results = alerts.send(title, "This is a test from Patchy. Alerts will arrive here.", [])
+    results = alerts.send(title, "This is a test from Patchy. Alerts will arrive here.", [], v)
     alerts.record(db, title, results)
     audit(db, user.username, "alerts.test", "settings", "alerts", results, client_ip(request))
     db.commit()
