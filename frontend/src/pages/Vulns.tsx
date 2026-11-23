@@ -5,7 +5,7 @@ import { MATCH_STATUS, SEVERITIES, fmtDate, pct, safeUrl } from "../format";
 import { usePrefs } from "../prefs";
 import { FindingTable } from "../tables";
 import {
-  Empty, Epss, ErrorBox, Field, KV, Kev, Link, Match, PageHead, Pager, Sev, Skeleton, Status, When, errText, toast, useLoad,
+  Empty, Epss, ErrorBox, Field, KV, Kev, Link, Match, Reach, PageHead, Pager, Sev, Skeleton, Status, When, errText, toast, useLoad,
   useQueryParam, useSort,
 } from "../ui";
 
@@ -100,7 +100,7 @@ export function FindingDetailPage({ id }: { id: number }) {
   return (
     <>
       <PageHead title={a.id} crumbs={[["Vulnerabilities", "/vulnerabilities"]]} sub={a.summary}
-        meta={<><Sev s={a.severity} /><Kev on={a.kev} /><Match s={f.match_status} /><Status s={f.status} />
+        meta={<><Sev s={a.severity} /><Kev on={a.kev} /><Reach e={f.exposure} note={f.exposure_note} /><Match s={f.match_status} /><Status s={f.status} />
           {a.epss != null && <Epss v={a.epss} p={a.epss_percentile} />}</>} />
       {a.source === "demo" && <div className="alert warn">DEMO advisory. Fictional, for trying out the interface only.</div>}
       {!f.currently_matching && <div className="alert">This finding no longer matches the current inventory (last checked <When iso={f.last_checked_at} />).</div>}

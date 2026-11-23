@@ -2,7 +2,7 @@ import { useState } from "react";
 import { get, type FixItem, type FixPlan as Plan, type Host, type Page, type Repo } from "../api";
 import { Icon } from "../icons";
 import { safeUrl } from "../format";
-import { CodeBlock, Empty, Epss, ErrorBox, Kev, Link, PageHead, Sev, Skeleton, errText, toast, useLoad, useQueryParam } from "../ui";
+import { CodeBlock, Empty, Epss, ErrorBox, Kev, Link, PageHead, Reach, Sev, Skeleton, errText, toast, useLoad, useQueryParam } from "../ui";
 
 function Upgrade({ i }: { i: FixItem }) {
   return (
@@ -19,7 +19,7 @@ function Items({ items, fixed = true }: { items: FixItem[]; fixed?: boolean }) {
         <thead><tr><th>Component</th><th>{fixed ? "Upgrade" : "Installed"}</th><th>Worst</th><th>EPSS</th><th>{fixed ? "Fixes" : "Unfixed advisories"}</th></tr></thead>
         <tbody>{items.map((i) => (
           <tr key={`${i.component_id}-${fixed}`}>
-            <td><Link to={`/assets/${i.component_id}`}>{i.name}</Link> <Kev on={i.kev} />
+            <td><Link to={`/assets/${i.component_id}`}>{i.name}</Link> <Kev on={i.kev} /> <Reach e={i.exposure} note={i.exposure_note} />
               {i.package !== i.name && <div className="cell-sub">package {i.package}</div>}
               {i.possible_only && <div className="cell-sub">possible matches only: confirm first</div>}</td>
             <td>{fixed ? <Upgrade i={i} /> : <span className="ver">{i.current ?? "?"}</span>}</td>
@@ -94,7 +94,7 @@ export function FixPlan({ hostId, repositoryId }: { hostId?: number; repositoryI
           <div className="step-head">
             <span className="step-n">Step {n + 1}</span>
             <h3>{g.title}</h3>
-            <Sev s={g.worst} /><Kev on={g.kev} />
+            <Sev s={g.worst} /><Kev on={g.kev} /><Reach e={g.exposure === "network" ? g.exposure : null} />
             <span className="grow" />
             {g.host_id && !hostId && <Link to={`/hosts/${g.host_id}`} className="small">Open host</Link>}
             {g.repository_id && !repositoryId && <Link to={`/repositories/${g.repository_id}`} className="small">Open repository</Link>}

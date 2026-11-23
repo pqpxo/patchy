@@ -2,6 +2,12 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.10.0 - 2026-11-23
+
+### Added
+- **Exposure ranking.** Components on agent hosts are marked **Network** when their process listens beyond loopback or their container publishes a port, and **Local** when only on loopback. The Priority sort, Fix first, the Fix plan and the AI prompt now put exposed findings ahead of ones nothing can reach (after known exploited). Findings tables have a sortable Exposure column. Takes effect from each host's next report.
+- Database migration 0007 adds two nullable columns to components. Nothing is changed or dropped.
+
 ## 1.9.1 - 2026-11-23
 
 ### Fixed

@@ -121,6 +121,14 @@ def _image_command(image: str) -> tuple[str | None, list[str]]:
     return f"docker pull {image}", notes
 
 
+EXPOSURE = {"network": 2, "local": 1}
+
+
+def _rank(i: dict) -> tuple:
+    """Known exploited first, then reachable over the network, then worst severity."""
+    return not i["kev"], -EXPOSURE.get(i["exposure"], 0), -SEV.get(i["worst"], 0), i["name"].lower()
+
+
 def build(db: Session, host_id: int | None = None, repository_id: int | None = None) -> dict:
     q = (select(Finding).join(Component).join(Advisory)
          .where(Finding.status.in_(OPEN), Finding.currently_matching.is_(True), Component.missing_since.is_(None),
@@ -145,6 +153,7 @@ def build(db: Session, host_id: int | None = None, repository_id: int | None = N
             "component_id": c.id, "name": c.name, "package": c.source_package or c.name,
             "current": c.source_version or c.version, "target": target, "findings": len(findings),
             "worst": worst, "kev": any(f.advisory.kev for f in findings),
+            "exposure": c.exposure, "exposure_note": c.exposure_note,
             "epss": max((f.advisory.epss or 0 for f in findings), default=0) or None,
             "possible_only": all(f.match_status == m.POSSIBLE for f in findings),
             "binaries": (c.details or {}).get("binaries") or [c.source_package or c.name],
@@ -162,14 +171,16 @@ def build(db: Session, host_id: int | None = None, repository_id: int | None = N
 
     out_groups = []
     for g in groups.values():
-        g["items"].sort(key=lambda i: (not i["kev"], -SEV.get(i["worst"], 0), i["name"].lower()))
+        g["items"].sort(key=_rank)
         g["command"], g["notes"] = (_image_command(g["image"]) if g["kind"] == "image"
                                     else _command(g["kind"], g["base"], g["path"], g["items"]))
-        g["worst"] = g["items"][0]["worst"]
+        g["worst"] = max((i["worst"] for i in g["items"]), key=lambda s: SEV.get(s, 0))
         g["kev"] = any(i["kev"] for i in g["items"])
+        g["exposure"] = max((i["exposure"] for i in g["items"]), key=lambda e: EXPOSURE.get(e, 0))
         out_groups.append(g)
-    out_groups.sort(key=lambda g: (not g["kev"], -SEV.get(g["worst"], 0), g["title"].lower()))
-    no_fix.sort(key=lambda i: (not i["kev"], -SEV.get(i["worst"], 0), i["name"].lower()))
+    out_groups.sort(key=lambda g: (not g["kev"], -EXPOSURE.get(g["exposure"], 0), -SEV.get(g["worst"], 0),
+                                   g["title"].lower()))
+    no_fix.sort(key=_rank)
 
     eol_items = [_eol_item(c.name, c.version, c.eol, c.id, None) for c in db.scalars(cq) if c.eol]
     hq = select(Host).where(Host.os_eol_state.in_(["eol", "eol_soon"]))
