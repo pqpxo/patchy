@@ -509,3 +509,7 @@ dialog.sheet ul { padding-left: 18px; }
 details.dest { border-top: 1px solid var(--rule); padding: 10px 0; }
 details.dest > summary { display: flex; align-items: center; gap: 8px; color: var(--ink); }
 details.dest .form { margin-top: 8px; }
+
+/* Fixes: AI assistant prompt */
+.ai-help .code pre { max-height: 300px; overflow: auto; white-space: pre-wrap; }
+.ai-help .code + .actions { margin-top: 12px; }
