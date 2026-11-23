@@ -503,3 +503,8 @@ dialog.sheet ul { padding-left: 18px; }
   .src-ctl { grid-column: 1 / -1; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* Settings > Alerts: one collapsible block per destination */
+details.dest { border-top: 1px solid var(--rule); padding: 10px 0; }
+details.dest > summary { display: flex; align-items: center; gap: 8px; color: var(--ink); }
+details.dest .form { margin-top: 8px; }

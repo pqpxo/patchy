@@ -14,9 +14,10 @@ interface SettingsData {
 }
 
 interface AlertEvents { kev: boolean; critical: boolean; eol: boolean; silent_hours: number }
+interface AlertField { env: string; secret: boolean; source: "env" | "ui" | null; value: string | null }
 interface AlertsData {
-  destinations: { webhook: boolean; ntfy: boolean; email: boolean }; events: AlertEvents; silent_choices: number[];
-  patchy_url: boolean;
+  destinations: { webhook: boolean; ntfy: boolean; pushover: boolean; email: boolean }; events: AlertEvents; silent_choices: number[];
+  fields: Record<string, AlertField>;
   status: { last_sent_at?: string; last_attempt_at?: string; last_title?: string; last_error?: string | null; baseline_at?: string } | null;
 }
 
@@ -152,11 +153,65 @@ function Sources({ choices }: { choices: number[] }) {
   );
 }
 
-const DESTINATIONS: [keyof AlertsData["destinations"], string, string][] = [
-  ["webhook", "Webhook", "ALERT_WEBHOOK_URL. A JSON POST with title, message and items, eg a Home Assistant webhook trigger."],
-  ["ntfy", "ntfy", "ALERT_NTFY_URL (the full topic URL) and, if the topic needs it, ALERT_NTFY_TOKEN."],
-  ["email", "Email", "SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM and ALERT_EMAIL_TO."],
+// [field, label, placeholder]
+type FieldDef = [string, string, string?];
+const DESTINATIONS: { id: keyof AlertsData["destinations"]; label: string; help: string; fields: FieldDef[] }[] = [
+  { id: "webhook", label: "Webhook", help: "A JSON POST with title, message, url and items. Works with a Home Assistant automation's Webhook trigger.",
+    fields: [["webhook_url", "Webhook URL", "http://homeassistant.lan:8123/api/webhook/..."]] },
+  { id: "ntfy", label: "ntfy", help: "Posts to an ntfy topic. Use a long random topic name, or a token if the topic is protected.",
+    fields: [["ntfy_url", "Topic URL", "https://ntfy.sh/your-topic"], ["ntfy_token", "Access token (optional)"]] },
+  { id: "pushover", label: "Pushover", help: "Create an application at pushover.net for its API token. Your user key is on the Pushover dashboard.",
+    fields: [["pushover_token", "Application API token"], ["pushover_user", "User or group key"]] },
+  { id: "email", label: "Email", help: "Port 465 uses TLS from the start; other ports use STARTTLS unless it's turned off.",
+    fields: [["smtp_host", "SMTP server", "smtp.example.com"], ["smtp_port", "Port", "587"], ["smtp_starttls", "STARTTLS"],
+      ["smtp_user", "Username"], ["smtp_password", "Password"], ["smtp_from", "From address", "patchy@example.com"],
+      ["email_to", "Send to", "you@example.com, other@example.com"]] },
 ];
+
+// Fields for one destination. Secrets are write-only: the server says whether one is saved, never what it is.
+function DestinationForm({ fields, defs, onSaved }: { fields: Record<string, AlertField>; defs: FieldDef[]; onSaved: () => void }) {
+  const initial = () => Object.fromEntries(defs.map(([k]) => [k, fields[k].secret ? "" : fields[k].value ?? ""]));
+  const [draft, setDraft] = useState<Record<string, string>>(initial);
+  const [busy, setBusy] = useState(false);
+  const editable = defs.filter(([k]) => fields[k].source !== "env");
+  const submit = async (body: Record<string, string>, done: string) => {
+    if (!Object.keys(body).length) return toast("Nothing changed.");
+    setBusy(true);
+    try { await put("/api/settings/alerts/destinations", body); toast(done); onSaved(); }
+    catch (e) { toast(errText(e), "bad"); }
+    finally { setBusy(false); }
+  };
+  const changed = Object.fromEntries(editable.map(([k]) => [k, draft[k].trim()])
+    .filter(([k, v]) => (fields[k].secret ? v !== "" : v !== (fields[k].value ?? ""))));
+  const saved = editable.filter(([k]) => fields[k].source === "ui");
+  return (
+    <form className="form" onSubmit={(e) => { e.preventDefault(); submit(changed, "Saved."); }}>
+      <div className="form-grid">
+        {defs.map(([k, label, ph]) => {
+          const f = fields[k];
+          const hint = f.source === "env" ? <>Set in <code>.env</code> as <code>{f.env}</code>, so it can't be changed here.</>
+            : f.secret && f.source === "ui" ? "Saved. Type a new value to replace it." : undefined;
+          return (
+            <Field key={k} label={label} hint={hint}>
+              {k === "smtp_starttls"
+                ? <select value={draft[k]} disabled={f.source === "env"} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}>
+                    <option value="true">On</option><option value="false">Off</option></select>
+                : <input type={f.secret ? "password" : "text"} autoComplete={f.secret ? "new-password" : "off"} spellCheck={false}
+                    disabled={f.source === "env"} value={f.source === "env" && f.secret ? "" : draft[k]}
+                    placeholder={f.secret && f.source ? "••••••••" : ph}
+                    onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />}
+            </Field>
+          );
+        })}
+      </div>
+      <div className="actions">
+        <button className="btn primary small" disabled={busy || !editable.length}>Save</button>
+        {saved.length > 0 && <button type="button" className="btn small" disabled={busy}
+          onClick={() => { if (confirm("Remove the values saved here for this destination?")) submit(Object.fromEntries(saved.map(([k]) => [k, ""])), "Removed."); }}>Remove</button>}
+      </div>
+    </form>
+  );
+}
 
 function Alerts({ a, onChange }: { a: AlertsData; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -190,11 +245,20 @@ function Alerts({ a, onChange }: { a: AlertsData; onChange: () => void }) {
           <h2>Where alerts go</h2>
           <button className="btn small" disabled={!any || busy} onClick={test}>Send test</button>
         </div>
-        <p className="small muted">Set in <code>.env</code> on the server, then restart Patchy. Every set destination gets every alert. Addresses and tokens are never shown here.</p>
-        <KV rows={DESTINATIONS.map(([k, label, help]) => [label, <>
-          {a.destinations[k] ? <span className="badge tone-good">Set</span> : <span className="badge tone-muted">Not set</span>}
-          <div className="small muted">{help}</div></>])} />
-        {!a.patchy_url && <p className="small muted">Add <code>PATCHY_URL</code> (the address you open Patchy on) to put links in alerts.</p>}
+        <p className="small muted">Every destination that's set up gets every alert. Passwords, tokens and webhook URLs are stored on the server and never shown again once saved.
+          Anything set in <code>.env</code> takes priority and is locked here.</p>
+        <details className="dest">
+          <summary><b>Links in alerts</b> {a.fields.patchy_url.value ? <span className="badge tone-good">Set</span> : <span className="badge tone-muted">Not set</span>}</summary>
+          <p className="small muted">The address you open Patchy on, so alerts can link straight to the finding or host.</p>
+          <DestinationForm key={JSON.stringify(a.fields.patchy_url)} fields={a.fields} defs={[["patchy_url", "Patchy address", "https://patchy.example.lan"]]} onSaved={onChange} />
+        </details>
+        {DESTINATIONS.map((d) => (
+          <details key={d.id} className="dest">
+            <summary><b>{d.label}</b> {a.destinations[d.id] ? <span className="badge tone-good">Set</span> : <span className="badge tone-muted">Not set</span>}</summary>
+            <p className="small muted">{d.help}</p>
+            <DestinationForm key={JSON.stringify(d.fields.map(([k]) => a.fields[k]))} fields={a.fields} defs={d.fields} onSaved={onChange} />
+          </details>
+        ))}
         {a.status?.last_error && <div className="alert bad" role="alert">Last attempt <When iso={a.status.last_attempt_at ?? null} />: {a.status.last_error}</div>}
         {a.status?.last_sent_at && <p className="small">Last sent <When iso={a.status.last_sent_at} />: {a.status.last_title}</p>}
       </section>
