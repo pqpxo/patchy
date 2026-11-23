@@ -20,7 +20,7 @@ def test_health_is_public(client):
 
 
 @pytest.mark.parametrize("path", ["/api/assets", "/api/hosts", "/api/findings", "/api/dashboard", "/api/settings",
-                                  "/api/audit", "/api/scans", "/api/repositories", "/api/feeds", "/api/news"])
+                                  "/api/audit", "/api/scans", "/api/repositories", "/api/feeds", "/api/news", "/api/trend"])
 def test_endpoints_require_login(client, path):
     assert client.get(path).status_code == 401
 

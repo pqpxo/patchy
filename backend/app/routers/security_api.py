@@ -1,14 +1,14 @@
 """Findings, dashboard, feeds, settings, audit log, and the agent-facing endpoints."""
 import json
 import pathlib
-from datetime import timedelta
+from datetime import datetime, time, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from .. import __version__, aiprompt, alerts, dependabot, fixplan, news, sources, vulns
@@ -113,6 +113,39 @@ def set_finding_status(finding_id: int, body: FindingStatusIn, request: Request,
 def get_news(db: Session = Depends(get_db), _: User = Depends(require_user)) -> dict:
     """The newest security news posts, as last fetched by the worker."""
     return news.stored(db)
+
+
+@router.get("/trend")
+def trend(db: Session = Depends(get_db), _: User = Depends(require_user), days: int = Query(90, ge=7, le=365)) -> dict:
+    """Open findings (confirmed and possible) at the end of each day, rebuilt from when each finding was first
+    detected and when it was last resolved. A finding resolved and later reopened counts as open in between."""
+    today = utcnow().date()
+    first = db.scalar(select(func.min(Finding.first_detected_at)))
+    if first:  # a new install starts where tracking started, not with weeks of zeros
+        days = max(7, min(days, (today - first.date()).days + 1))
+    start = today - timedelta(days=days - 1)
+    since = datetime.combine(start, time(), timezone.utc)
+    rows = db.execute(select(Finding.first_detected_at, Finding.status, Finding.status_changed_at, Advisory.severity)
+                      .join(Advisory).where(Finding.match_status != "unknown_version",
+                                            or_(Finding.status.in_(OPEN), Finding.status_changed_at >= since)))
+    keys = ("total", "critical", "high")
+    delta = {k: [0] * (days + 1) for k in keys}  # +1 on the day a finding opens, -1 on the day it closes
+    for first, status, changed, sev in rows:
+        a = max((first.date() - start).days, 0)
+        b = days if status in OPEN else min((changed.date() - start).days, days)
+        if a >= b:
+            continue
+        for k in keys:
+            if k == "total" or k == sev:
+                delta[k][a] += 1
+                delta[k][b] -= 1
+    run = dict.fromkeys(keys, 0)
+    out = []
+    for i in range(days):
+        for k in keys:
+            run[k] += delta[k][i]
+        out.append({"date": (start + timedelta(days=i)).isoformat(), **run})
+    return {"days": out}
 
 
 @router.get("/dashboard")
