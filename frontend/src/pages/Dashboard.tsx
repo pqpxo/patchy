@@ -1,3 +1,4 @@
+import { useState, type PointerEvent } from "react";
 import { get, type Feed, type Finding, type Page } from "../api";
 import { safeUrl } from "../format";
 import { Icon } from "../icons";
@@ -13,6 +14,66 @@ interface Dash {
 }
 
 const LEVELS = ["critical", "high", "medium", "low"] as const;
+
+interface TrendDay { date: string; total: number; critical: number; high: number }
+
+const shortDate = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+
+// Open findings at the end of each of the last 90 days (fewer on a new install): one area series, hover for a day.
+function Trend() {
+  const { data } = useLoad(() => get<{ days: TrendDay[] }>("/api/trend"), []);
+  const [hover, setHover] = useState<number | null>(null);
+  if (!data) return <section className="card"><h2>Open findings</h2><Skeleton rows={3} /></section>;
+  const days = data.days;
+  const W = 600, H = 140, PAD = 6;
+  const top = Math.max(4, ...days.map((d) => d.total));
+  const step = Math.pow(10, Math.floor(Math.log10(top))) / 2;
+  const max = Math.ceil(top / step) * step;
+  const x = (i: number) => (i / (days.length - 1)) * W;
+  const y = (v: number) => PAD + (1 - v / max) * (H - PAD);
+  const line = days.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(d.total).toFixed(1)}`).join("");
+  const now = days[days.length - 1], ago = days[Math.max(0, days.length - 31)];
+  const change = now.total - ago.total;
+  const h = hover === null ? null : days[hover];
+  const pick = (e: PointerEvent<SVGSVGElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setHover(Math.round(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * (days.length - 1)));
+  };
+  return (
+    <section className="card trend">
+      <div className="card-head"><h2>Open findings, last {days.length} days</h2>
+        <span className="small muted"><b className="num">{now.total}</b> open, {change === 0 ? "no change" : `${change > 0 ? "up" : "down"} ${Math.abs(change)}`} {days.length > 30 ? "in 30 days" : `since ${shortDate(ago.date)}`}</span></div>
+      <div className="trend-plot">
+        <div className="trend-y" aria-hidden="true"><span>{max}</span><span>{max / 2}</span><span>0</span></div>
+        <div className="trend-area">
+          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img"
+            aria-label={`Open findings over the last ${days.length} days: ${ago.total} thirty days ago, ${now.total} today.`}
+            onPointerMove={pick} onPointerLeave={() => setHover(null)}>
+            {[0, 0.5, 1].map((f) => <line key={f} className="grid" x1="0" x2={W} y1={y(max * f)} y2={y(max * f)} />)}
+            <path className="fill" d={`${line}L${W},${H}L0,${H}Z`} />
+            <path className="stroke" d={line} />
+            {h && hover !== null && <>
+              <line className="cross" x1={x(hover)} x2={x(hover)} y1="0" y2={H} />
+              <circle className="dot" cx={x(hover)} cy={y(h.total)} r="4" />
+            </>}
+          </svg>
+          {h && hover !== null && (
+            <div className={`trend-tip${hover > (days.length - 1) / 2 ? " flip" : ""}`} style={{ left: `${(hover / (days.length - 1)) * 100}%` }}>
+              <b>{shortDate(h.date)}</b><span><b className="num">{h.total}</b> open</span>
+              <span className="muted">{h.critical} critical, {h.high} high</span>
+            </div>
+          )}
+          <div className="trend-x small muted" aria-hidden="true"><span>{shortDate(days[0].date)}</span><span>{shortDate(days[Math.floor(days.length / 2)].date)}</span><span>today</span></div>
+        </div>
+      </div>
+      <table className="sr-only"><caption>Open findings by week</caption>
+        <thead><tr><th>Date</th><th>Open</th><th>Critical</th><th>High</th></tr></thead>
+        <tbody>{days.filter((_, i) => (days.length - 1 - i) % 7 === 0).map((d) => (
+          <tr key={d.date}><td>{d.date}</td><td>{d.total}</td><td>{d.critical}</td><td>{d.high}</td></tr>))}</tbody>
+      </table>
+    </section>
+  );
+}
 
 interface News {
   enabled: boolean; updated_at: string | null; errors: string[];
@@ -123,6 +184,7 @@ export default function Dashboard() {
       <div className="grid dash">
         <div className="stack">
           <FixFirst />
+          <Trend />
           <section className="card">
             <div className="card-head"><h2>Most affected assets</h2><Link to="/assets?vulnerable=1&sort=severity&order=desc" className="small">All</Link></div>
             {data.top_assets.length === 0 ? <p className="muted">No open confirmed or possible findings.</p> : (

@@ -40,6 +40,7 @@ Self-hosted software inventory and vulnerability tracker for a home lab. Registe
 - **Security news**: the 5 newest posts from security news feeds (RSS or Atom) on the Overview. The Hacker News by default; set `NEWS_FEEDS` to choose your own.
 - **Fixes**: open findings grouped into the fewest upgrade steps per host, repository and manifest, with a copy-paste command where it's safe to give one.
 - **Exposure ranking**: findings in software that listens on the network, or in a container that publishes a port, rank above ones nothing can reach.
+- **Trend**: open findings over the last 90 days on the Overview, with the change over 30 days. Hover for each day's critical and high counts.
 - **GitHub Dependabot**: cross-checks each repository's Dependabot alerts against Patchy's own findings.
 - **Per-source schedules**: switch each source on or off and choose how often it refreshes, from Settings.
 - **Interface**: 18 colour schemes with day and night modes, 6 font styles, compact density, sortable tables with a column chooser, quick search (Ctrl+K). Version and changelog in Settings.
