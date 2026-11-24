@@ -18,7 +18,7 @@ from ..agent_ingest import Report, ingest
 from ..config import settings
 from ..db import get_db, utcnow
 from ..models import Advisory, AppSetting, AuditLog, Component, FeedStatus, Finding, Host, Repository, ScanRun, User
-from ..schemas import (AlertDestinationsIn, AlertsIn, AnyFindingStatus, AuditOut, FeedOut, FindingOut, FindingStatusIn, NewsFeedsIn, Page,
+from ..schemas import (AUTO_STATUSES, AlertDestinationsIn, AlertsIn, AnyFindingStatus, AuditOut, FeedOut, FindingOut, FindingStatusIn, NewsFeedsIn, Page,
                        RefreshIn, ScanRunOut, SourceIn)
 from ..security import audit, authenticate_agent, client_ip, limiter, require_user
 from ..worker import enqueue
@@ -138,7 +138,11 @@ def set_finding_status(finding_id: int, body: FindingStatusIn, request: Request,
     if not f:
         raise HTTPException(404, "Not found.")
     old = f.status
-    f.status, f.status_note, f.status_changed_by = body.status, body.note, user.username
+    if body.status in AUTO_STATUSES and body.status != old:
+        raise HTTPException(422, "Patchy sets this status itself. Choose Open, Acknowledged, Resolved or False positive.")
+    f.status, f.status_note = body.status, body.note
+    if body.status not in AUTO_STATUSES:  # a note on an automatic status leaves Patchy in charge of it
+        f.status_changed_by = user.username
     if old != body.status and (old in OPEN or body.status in OPEN):
         # A note edit, or moving between closed statuses, keeps the date it was closed (the trend counts from it).
         f.status_changed_at = utcnow()
