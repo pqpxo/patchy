@@ -105,6 +105,7 @@ function SecurityNews() {
 function ExposureStrip({ d }: { d: Dash }) {
   const total = LEVELS.reduce((a, s) => a + (d.severity[s] ?? 0), 0);
   const unknownOpen = d.match_status.unknown_version ?? 0;
+  const minor = d.status.minor ?? 0;
   return (
     <section className="card strip" aria-label="Open findings by severity">
       <div className="card-head"><h2>Open exposure</h2><span className="small muted">confirmed and possible matches</span></div>
@@ -121,7 +122,10 @@ function ExposureStrip({ d }: { d: Dash }) {
           <span className="n">{d.kev_open}</span><span className="l">known exploited</span>
         </Link>
       </div>
-      {unknownOpen > 0 && <p className="small muted">A further <Link to="/vulnerabilities?match_status=unknown_version">{unknownOpen} need a version</Link> before Patchy can confirm them.</p>}
+      {(unknownOpen > 0 || minor > 0) && <p className="small muted">
+        {unknownOpen > 0 && <>A further <Link to="/vulnerabilities?match_status=unknown_version">{unknownOpen} need a version</Link> before Patchy can confirm them. </>}
+        {minor > 0 && <><Link to="/vulnerabilities?status=minor">{minor} more</Link> are set aside because the distro rates them unimportant or negligible.</>}
+      </p>}
     </section>
   );
 }

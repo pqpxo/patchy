@@ -239,6 +239,15 @@ def entries_for(affected: list[dict], ecosystem: str, name: str) -> list[dict]:
     return out
 
 
+# Distro ratings that mean "not worth a security update": Debian's urgency and Ubuntu's priority.
+MINOR = ("unimportant", "negligible")
+
+
+def priority_for(affected: list[dict], ecosystem: str, name: str) -> str | None:
+    """The distro's own rating of this advisory for this package and release, eg Debian 'unimportant'."""
+    return next((a["priority"] for a in entries_for(affected, ecosystem, name) if a.get("priority")), None)
+
+
 def evaluate(affected: list[dict], ecosystem: str, name: str, version: str | None,
              version_status: str = "exact", osv_hit: bool | None = None) -> MatchResult | None:
     """Return a MatchResult or None if the advisory does not concern this package.

@@ -276,7 +276,8 @@ class Finding(Base):
     fixed_versions: Mapped[list] = mapped_column(JSON, default=list)
     remediation: Mapped[str] = mapped_column(Text)
     currently_matching: Mapped[bool] = mapped_column(Boolean, default=True)
-    status: Mapped[str] = mapped_column(String(16), default="open")  # open|acknowledged|resolved|false_positive
+    status: Mapped[str] = mapped_column(String(16), default="open")  # open|acknowledged|resolved|false_positive|minor
+    vendor_priority: Mapped[str | None] = mapped_column(String(32))  # distro rating, eg Debian 'unimportant'
     status_note: Mapped[str | None] = mapped_column(Text)
     status_changed_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
     status_changed_by: Mapped[str] = mapped_column(String(64), default="system")
