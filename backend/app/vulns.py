@@ -13,7 +13,7 @@ import httpx
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from . import cpe, eol, fixplan, sources
+from . import cpe, eol, fixplan, risk, sources
 from . import matching as m
 from . import __version__
 from .config import settings
@@ -407,7 +407,7 @@ def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
             if adv_id in matched:
                 continue
             f.currently_matching, f.last_checked_at = False, now
-            if f.status in ("open", "acknowledged", "minor"):
+            if f.status in ("open", "acknowledged", "minor", "risk_accepted"):
                 why = "component no longer present in latest scan" if c.missing_since else \
                     f"version {c.version or 'unknown'} no longer matches the advisory"
                 f.status, f.status_note = "resolved", f"Resolved automatically: {why}."
@@ -415,6 +415,7 @@ def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
                 audit(db, "system", "finding.auto_resolved", "finding", f.id, {"reason": why})
                 stats["auto_resolved"] += 1
     db.flush()
+    stats.update(risk.apply(db))
     stats["end_of_life"] = eol.apply(db, comps)
     return stats
 

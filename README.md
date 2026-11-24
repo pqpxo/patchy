@@ -29,6 +29,7 @@
 - [Linux agent](#linux-agent)
 - [Vulnerability feeds](#vulnerability-feeds)
 - [Fixes](#fixes)
+- [Accepted risk](#accepted-risk)
 - [Alerts](#alerts)
 - [Home Assistant](#home-assistant)
 - [Themes and views](#themes-and-views)
@@ -60,7 +61,7 @@
 - **Per-source schedules**: switch each source on or off and choose how often it refreshes, from Settings.
 - **Interface**: 18 colour schemes with day and night modes, 6 font styles, compact density, sortable tables with a column chooser, quick search (Ctrl+K). Version and changelog in Settings.
 - **Honest states**: confirmed, possible and version-unknown matches are kept separate. "Not checked" and "stale feed" are never shown as clean.
-- **Workflow**: open, acknowledged, resolved and false-positive states with notes. Findings auto-resolve when the version moves out of range and reopen if it moves back. Findings that Debian rates *unimportant* or Ubuntu rates *negligible* are set aside as **minor**, so they don't fill your counts.
+- **Workflow**: open, acknowledged, resolved and false-positive states with notes. Findings auto-resolve when the version moves out of range and reopen if it moves back. Findings that Debian rates *unimportant* or Ubuntu rates *negligible* are set aside as **minor**, so they don't fill your counts. Accepted-risk rules set findings aside until a date you choose.
 - **AI fix prompts**: a ready-made prompt and a downloadable report per host or repository, to get step-by-step patching help from ChatGPT or Claude.
 - **Alerts**: one message to a webhook (Home Assistant), ntfy, Pushover or email when an exploited or critical vulnerability is found, a host stops reporting, or software nears end of life.
 - **Audit log** of logins, asset changes, scans, agent enrolment and revocation, and status changes.
@@ -342,6 +343,20 @@ Names and advisory text in the report come from scans and public feeds, so both 
 
 > [!IMPORTANT]
 > Test updates before rolling them out. Patchy builds these steps from advisory data and can't guarantee an update is safe or complete.
+
+<br>
+
+## Accepted risk
+
+When you've decided to live with a finding for now, accept the risk instead of marking it a false positive. Use **Accept risk…** on a finding, or **Settings > Accepted risk**.
+
+- A rule covers an advisory (its ID or a CVE), a package, or both, on every host or just one.
+- Every rule needs a reason and an expiry date, at most a year away.
+- Covered findings get the status **Risk accepted** and leave the open counts, alerts, fix plans and Home Assistant sensors. New findings the rule covers are set aside as they appear.
+- When the rule expires or you revoke it, its findings reopen by themselves. Creating and revoking rules is audit-logged.
+
+> [!TIP]
+> Filter the Vulnerabilities page by *Risk accepted* to review what you've set aside. A finding a rule covers can't be reopened by hand: revoke the rule instead.
 
 <br>
 

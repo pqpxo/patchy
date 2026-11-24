@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from "react";
-import { del, get, post, put, type AuditEntry, type Feed, type Page, type ScanRun } from "../api";
+import { del, get, post, put, type AuditEntry, type Feed, type Host, type Page, type ScanRun } from "../api";
 import { Icon } from "../icons";
 import { HOURS_LABEL, safeUrl } from "../format";
 import { FONTS, PAGE_SIZES, SCHEMES, resolvedMode, setPrefs, usePrefs, type Mode } from "../prefs";
-import { CodeBlock, ErrorBox, Field, KV, PageHead, Pager, RunBanner, Skeleton, Switch, When, errText, toast, useLoad, useQueryParam } from "../ui";
+import { CodeBlock, ErrorBox, Field, KV, Link, PageHead, Pager, RunBanner, Skeleton, Switch, When, errText, toast, useLoad, useQueryParam } from "../ui";
 
 interface SettingsData {
   github_token_configured: boolean; nvd_api_key_configured: boolean; feed_stale_hours: number; cookie_secure: boolean;
@@ -24,7 +24,7 @@ interface AlertsData {
 }
 
 const SECTIONS: [string, string][] = [
-  ["appearance", "Appearance"], ["sources", "Sources and schedule"], ["alerts", "Alerts"],
+  ["appearance", "Appearance"], ["sources", "Sources and schedule"], ["alerts", "Alerts"], ["risks", "Accepted risk"],
   ["integrations", "Home Assistant"], ["system", "System"],
   ["account", "Account"], ["audit", "Audit log"], ["about", "About"],
 ];
@@ -445,6 +445,76 @@ function Integrations() {
   );
 }
 
+interface RiskRule {
+  id: number; advisory: string | null; package: string | null; host_id: number | null; host_name: string | null;
+  reason: string; expires_at: string; created_by: string; created_at: string; revoked_at: string | null; active: boolean; findings: number;
+}
+
+const inDays = (n: number) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+
+function Risks() {
+  const rules = useLoad(() => get<RiskRule[]>("/api/risks"), []);
+  const hosts = useLoad(() => get<Page<Host>>("/api/hosts", { page_size: 200 }), []);
+  const q = new URLSearchParams(window.location.search);
+  const [form, setForm] = useState({ advisory: q.get("advisory") ?? "", package: q.get("package") ?? "", host_id: q.get("host") ?? "",
+    reason: "", expires_on: inDays(90) });
+  const [busy, setBusy] = useState(false);
+  const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
+  const create = async () => {
+    setBusy(true);
+    try {
+      const r = await post<RiskRule>("/api/risks", { ...form, advisory: form.advisory.trim() || null, package: form.package.trim() || null,
+        host_id: form.host_id ? Number(form.host_id) : null });
+      toast(`Risk accepted for ${r.findings} finding${r.findings === 1 ? "" : "s"}.`);
+      setForm({ ...form, advisory: "", package: "", host_id: "", reason: "" }); rules.reload();
+    } catch (e) { toast(errText(e), "bad"); }
+    finally { setBusy(false); }
+  };
+  const revoke = async (r: RiskRule) => {
+    try { await del(`/api/risks/${r.id}`); toast("Rule revoked. Its findings are open again."); rules.reload(); }
+    catch (e) { toast(errText(e), "bad"); }
+  };
+  return (
+    <>
+      <section className="card">
+        <h2>Accept a risk</h2>
+        <p className="small muted">Findings a rule covers get the status <strong>Risk accepted</strong> and leave the open counts, alerts and fix plans
+          until the rule expires or you revoke it. Then they reopen by themselves. An advisory can be its ID or a CVE.</p>
+        <form onSubmit={(e) => { e.preventDefault(); create(); }}>
+          <div className="grid fields">
+            <Field label="Advisory or CVE"><input value={form.advisory} onChange={set("advisory")} maxLength={128} placeholder="CVE-2024-1234" /></Field>
+            <Field label="Package"><input value={form.package} onChange={set("package")} maxLength={300} placeholder="openssl" /></Field>
+            <Field label="Host"><select value={form.host_id} onChange={set("host_id")}>
+              <option value="">Any host</option>{hosts.data?.items.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+            </select></Field>
+            <Field label="Until"><input type="date" required value={form.expires_on} min={inDays(1)} max={inDays(365)} onChange={set("expires_on")} /></Field>
+          </div>
+          <Field label="Reason"><input value={form.reason} onChange={set("reason")} required minLength={3} maxLength={1000} placeholder="Why is this acceptable?" /></Field>
+          <div><button className="btn primary small" disabled={busy || !(form.advisory.trim() || form.package.trim())}>Accept risk</button></div>
+        </form>
+      </section>
+      <section className="card">
+        <h2>Rules</h2>
+        <ErrorBox error={rules.error} onRetry={rules.reload} />
+        {rules.data?.length === 0 && <p className="small muted">No accepted risks.</p>}
+        {rules.data && rules.data.length > 0 && <div className="table-wrap"><table className="table compact">
+          <thead><tr><th>Covers</th><th>Until</th><th>Findings</th><th /></tr></thead>
+          <tbody>{rules.data.map((r) => (
+            <tr key={r.id}>
+              <td><strong>{[r.advisory, r.package].filter(Boolean).join(" in ")}</strong>{r.host_name && <> on {r.host_name}</>}
+                {!r.active && <> <span className="badge tone-muted">{r.revoked_at ? "Revoked" : "Expired"}</span></>}
+                <div className="cell-sub">{r.reason} ({r.created_by})</div></td>
+              <td className="nowrap">{new Date(r.expires_at).toLocaleDateString("en-GB", { dateStyle: "medium" })}</td>
+              <td className="num">{r.active ? <Link to="/vulnerabilities?status=risk_accepted">{r.findings}</Link> : "-"}</td>
+              <td>{r.active && <button className="btn small danger" onClick={() => { if (window.confirm("Revoke this rule? Its findings reopen.")) revoke(r); }}>Revoke</button>}</td>
+            </tr>
+          ))}</tbody>
+        </table></div>}
+      </section>
+    </>
+  );
+}
+
 function Account() {
   const [pw, setPw] = useState({ current: "", next: "", again: "" });
   const [msg, setMsg] = useState("");
@@ -558,6 +628,7 @@ export default function SettingsPage() {
           </div>}
           {t === "sources" && (s.data ? <><Sources choices={s.data.hour_choices} /><NewsFeeds n={s.data.news} onSaved={s.reload} /></> : <Skeleton />)}
           {t === "alerts" && (s.data ? <Alerts a={s.data.alerts} onChange={s.reload} /> : <Skeleton />)}
+          {t === "risks" && <Risks />}
           {t === "integrations" && <Integrations />}
           {t === "system" && (s.data ? <System s={s.data} /> : <Skeleton />)}
           {t === "account" && <Account />}

@@ -276,7 +276,7 @@ class Finding(Base):
     fixed_versions: Mapped[list] = mapped_column(JSON, default=list)
     remediation: Mapped[str] = mapped_column(Text)
     currently_matching: Mapped[bool] = mapped_column(Boolean, default=True)
-    status: Mapped[str] = mapped_column(String(16), default="open")  # open|acknowledged|resolved|false_positive|minor
+    status: Mapped[str] = mapped_column(String(16), default="open")  # open|acknowledged|resolved|false_positive|minor|risk_accepted
     vendor_priority: Mapped[str | None] = mapped_column(String(32))  # distro rating, eg Debian 'unimportant'
     status_note: Mapped[str | None] = mapped_column(Text)
     status_changed_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
@@ -323,6 +323,21 @@ class ApiToken(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(TS)
     last_ip: Mapped[str | None] = mapped_column(String(64))
     revoked_at: Mapped[datetime | None] = mapped_column(TS)
+
+
+class RiskRule(Base):
+    """An accepted risk: findings for this advisory and/or package (optionally on one host) until it expires."""
+    __tablename__ = "risk_rules"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    advisory: Mapped[str | None] = mapped_column(String(128))  # advisory id or CVE
+    package: Mapped[str | None] = mapped_column(String(300))
+    host_id: Mapped[int | None] = mapped_column(ForeignKey("hosts.id", ondelete="CASCADE"))
+    reason: Mapped[str] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(TS)
+    created_by: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(TS)
+    host: Mapped["Host | None"] = relationship()
 
 
 class AuditLog(Base):
