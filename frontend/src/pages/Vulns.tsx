@@ -43,7 +43,7 @@ export function VulnsPage() {
       <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
         <option value="">Open + acknowledged</option><option value="open">Open</option><option value="acknowledged">Acknowledged</option>
         <option value="resolved">Resolved</option><option value="false_positive">False positive</option>
-        <option value="minor">Minor (distro rating)</option>
+        <option value="minor">Minor (distro rating)</option><option value="risk_accepted">Risk accepted</option>
       </select>
       <select aria-label="Match" value={match} onChange={(e) => setMatch(e.target.value)}>
         <option value="">All match types</option>{Object.entries(MATCH_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
@@ -166,10 +166,14 @@ export function FindingDetailPage({ id }: { id: number }) {
               <option value="open">Open</option><option value="acknowledged">Acknowledged</option>
               <option value="resolved">Resolved</option><option value="false_positive">False positive</option>
               {f.status === "minor" && <option value="minor" disabled>Minor (set by Patchy)</option>}
+              {f.status === "risk_accepted" && <option value="risk_accepted" disabled>Risk accepted (by a rule)</option>}
             </select>
           </Field>
           <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} placeholder="Why?" size={40} /></Field>
           <button className="btn primary">Update</button>
+          {f.status === "risk_accepted"
+            ? <Link className="btn small" to="/settings?tab=risks">Manage rules</Link>
+            : <Link className="btn small" to={`/settings${qs({ tab: "risks", advisory: a.id, package: f.component_name, host: f.host_id ?? undefined })}`}>Accept risk…</Link>}
         </form>
         <h3>History</h3>
         {data.history.length === 0 ? <p className="muted">No changes yet. First detected <When iso={f.first_detected_at} />.</p> : (
