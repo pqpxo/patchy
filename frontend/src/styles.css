@@ -217,6 +217,7 @@ main#main:focus { outline: none; }
 .mounts .badge { margin-left: 6px; }
 .grid { display: grid; gap: var(--gap); margin-bottom: var(--gap); }
 .grid.two { grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); }
+.grid.fields { grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 0 12px; margin-bottom: 0; }
 .grid.dash { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); align-items: start; }
 .stack { display: grid; gap: var(--gap); }
 .card { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--r2); padding: 16px 18px; margin-bottom: var(--gap); min-width: 0; }
@@ -265,6 +266,7 @@ main#main:focus { outline: none; }
 .st-resolved, .st-succeeded { color: var(--good); border-color: color-mix(in srgb, var(--good) 50%, transparent); }
 .st-false_positive, .st-queued { color: var(--ink-3); }
 .st-minor { color: var(--ink-3); border-style: dashed; }
+.st-risk_accepted { color: var(--ink-2); border-color: var(--rule-3); }
 .st-failed { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, transparent); }
 .st-running::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 5px; animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.3; } }

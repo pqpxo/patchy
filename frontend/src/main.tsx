@@ -70,6 +70,7 @@ function Palette({ onClose }: { onClose: () => void }) {
       { label: "Add an asset", to: "/assets/new", kind: "Action" },
       { label: "Appearance and themes", to: "/settings?tab=appearance", kind: "Settings" },
       { label: "Sources and schedule", to: "/settings?tab=sources", kind: "Settings" },
+      { label: "Accepted risk rules", to: "/settings?tab=risks", kind: "Settings" },
       { label: "Version and changelog", to: "/settings?tab=about", kind: "Settings" },
       { label: "Known exploited findings", to: "/vulnerabilities?kev=true", kind: "Filter" },
       { label: "End-of-life assets", to: "/assets?eol_state=eol", kind: "Filter" },

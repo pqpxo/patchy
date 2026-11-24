@@ -2,6 +2,15 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.17.0 - 2026-11-24
+
+### Added
+- **Accepted risk**: rules that set findings aside until a date you choose (at most a year). A rule covers an advisory or CVE, a package, or both, optionally on one host, and needs a reason. Covered findings get the status *Risk accepted* and leave the open counts, alerts, fix plans and Home Assistant sensors. When a rule expires or is revoked, its findings reopen by themselves.
+- An *Accept risk…* button on each finding, a new **Settings > Accepted risk** section, and a *Risk accepted* status filter. Creating and revoking rules is audit-logged.
+
+### Upgrade notes
+- Adds one table (`risk_rules`). The migration runs on start and changes no existing data.
+
 ## 1.16.0 - 2026-11-24
 
 ### Added

@@ -9,7 +9,7 @@ import time
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from . import __version__, alerts, news, repo_scanner, sources, vulns
+from . import __version__, alerts, news, repo_scanner, risk, sources, vulns
 from .db import SessionLocal, utcnow
 from .models import AppSetting, ScanRun
 
@@ -107,6 +107,9 @@ def main() -> None:
             next_alert = time.monotonic() + ALERT_EVERY
             with SessionLocal() as db:
                 try:
+                    if (s := risk.apply(db))["risk_released"]:  # rules that expired since the last check
+                        log.info("reopened %s finding(s) whose accepted risk ended", s["risk_released"])
+                    db.commit()
                     if n := alerts.run(db):
                         log.info("sent an alert covering %s item(s)", n)
                 except Exception:  # an alert problem must never stop scans

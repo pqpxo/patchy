@@ -16,7 +16,8 @@ ComponentType = Literal["language", "library", "web_server", "database", "os_pac
                         "application", "service", "other"]
 Ecosystem = Literal["PyPI", "npm", "Go", "crates.io", "Packagist", "Maven", "RubyGems", "NuGet"]
 FindingStatus = Literal["open", "acknowledged", "resolved", "false_positive"]  # what a person can set
-AnyFindingStatus = Literal["open", "acknowledged", "resolved", "false_positive", "minor"]  # 'minor' is set by Patchy
+# 'minor' and 'risk_accepted' are set by Patchy: from the distro's rating, and by accepted-risk rules
+AnyFindingStatus = Literal["open", "acknowledged", "resolved", "false_positive", "minor", "risk_accepted"]
 
 
 class In(BaseModel):
