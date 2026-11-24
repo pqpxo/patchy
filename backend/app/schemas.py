@@ -15,7 +15,8 @@ Notes = Annotated[str | None, StringConstraints(max_length=5000)]
 ComponentType = Literal["language", "library", "web_server", "database", "os_package", "container_image",
                         "application", "service", "other"]
 Ecosystem = Literal["PyPI", "npm", "Go", "crates.io", "Packagist", "Maven", "RubyGems", "NuGet"]
-FindingStatus = Literal["open", "acknowledged", "resolved", "false_positive"]
+FindingStatus = Literal["open", "acknowledged", "resolved", "false_positive"]  # what a person can set
+AnyFindingStatus = Literal["open", "acknowledged", "resolved", "false_positive", "minor"]  # 'minor' is set by Patchy
 
 
 class In(BaseModel):
@@ -204,6 +205,7 @@ class FindingOut(Out):
     currently_matching: bool
     status: str
     status_note: str | None
+    vendor_priority: str | None = None
     status_changed_at: datetime
     status_changed_by: str
     first_detected_at: datetime

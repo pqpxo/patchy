@@ -60,7 +60,7 @@
 - **Per-source schedules**: switch each source on or off and choose how often it refreshes, from Settings.
 - **Interface**: 18 colour schemes with day and night modes, 6 font styles, compact density, sortable tables with a column chooser, quick search (Ctrl+K). Version and changelog in Settings.
 - **Honest states**: confirmed, possible and version-unknown matches are kept separate. "Not checked" and "stale feed" are never shown as clean.
-- **Workflow**: open, acknowledged, resolved and false-positive states with notes. Findings auto-resolve when the version moves out of range and reopen if it moves back.
+- **Workflow**: open, acknowledged, resolved and false-positive states with notes. Findings auto-resolve when the version moves out of range and reopen if it moves back. Findings that Debian rates *unimportant* or Ubuntu rates *negligible* are set aside as **minor**, so they don't fill your counts.
 - **AI fix prompts**: a ready-made prompt and a downloadable report per host or repository, to get step-by-step patching help from ChatGPT or Claude.
 - **Alerts**: one message to a webhook (Home Assistant), ntfy, Pushover or email when an exploited or critical vulnerability is found, a host stops reporting, or software nears end of life.
 - **Audit log** of logins, asset changes, scans, agent enrolment and revocation, and status changes.
@@ -298,6 +298,11 @@ The logic lives in [backend/app/matching.py](backend/app/matching.py) and has no
 Names must match exactly after ecosystem normalisation (PEP 503 for PyPI). A similar name is never a match. Remediation uses only the advisory's `fixed` events and links. If none are listed, Patchy says so rather than guessing.
 
 **NVD product matching** covers components OSV can't: agent-detected servers and runtimes, and manual assets. A curated map (and endoflife.date's CPE identifiers) turns a name into a `vendor:product`, or you can set the CPE on a manual asset. NVD evaluates the version ranges, and Patchy re-checks that the product itself (not just its platform) is vulnerable. These matches are always **possible**: Debian, Ubuntu and others backport fixes without changing the upstream version, so check your distro's tracker. Binaries installed from a distro package are skipped here, because OSV already checks the package.
+
+**Distro ratings.** Debian and Ubuntu rate many CVEs as not worth a security update (Debian's *unimportant*, Ubuntu's *negligible*), often because the code isn't built or isn't reachable in their package. Patchy keeps that rating and sets those findings aside with the status **Minor**: they leave the open counts, alerts, fix plans and Home Assistant sensors, and you can still list them with the *Minor (distro rating)* status filter. A known-exploited advisory is never set aside. If the distro raises its rating, the finding reopens by itself. Set a minor finding to Open and Patchy leaves it open.
+
+> [!TIP]
+> Ratings arrive as advisories are re-fetched, oldest first, up to `OSV_MAX_ADVISORY_FETCH_PER_REFRESH` per refresh. With a large estate, raise it for a refresh or two to pick up every rating sooner.
 
 <br>
 

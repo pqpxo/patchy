@@ -18,7 +18,7 @@ from ..agent_ingest import Report, ingest
 from ..config import settings
 from ..db import get_db, utcnow
 from ..models import Advisory, AppSetting, AuditLog, Component, FeedStatus, Finding, Host, Repository, ScanRun, User
-from ..schemas import (AlertDestinationsIn, AlertsIn, AuditOut, FeedOut, FindingOut, FindingStatusIn, NewsFeedsIn, Page,
+from ..schemas import (AlertDestinationsIn, AlertsIn, AnyFindingStatus, AuditOut, FeedOut, FindingOut, FindingStatusIn, NewsFeedsIn, Page,
                        RefreshIn, ScanRunOut, SourceIn)
 from ..security import audit, authenticate_agent, client_ip, limiter, require_user
 from ..worker import enqueue
@@ -37,7 +37,7 @@ EXPOSURE_RANK = case({"network": 2, "local": 1}, value=Component.exposure, else_
 # ---------------- findings ----------------
 
 def finding_query(severity: list[Literal["critical", "high", "medium", "low", "none", "unknown"]] = Query(None),
-                  status: list[Literal["open", "acknowledged", "resolved", "false_positive"]] = Query(None),
+                  status: list[AnyFindingStatus] = Query(None),
                   match_status: list[Literal["confirmed", "possible", "unknown_version"]] = Query(None),
                   kev: bool | None = None, host_id: int | None = None, repository_id: int | None = None,
                   component_id: int | None = None, q: str | None = Query(None, max_length=200),
