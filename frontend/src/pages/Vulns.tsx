@@ -43,6 +43,7 @@ export function VulnsPage() {
       <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
         <option value="">Open + acknowledged</option><option value="open">Open</option><option value="acknowledged">Acknowledged</option>
         <option value="resolved">Resolved</option><option value="false_positive">False positive</option>
+        <option value="minor">Minor (distro rating)</option>
       </select>
       <select aria-label="Match" value={match} onChange={(e) => setMatch(e.target.value)}>
         <option value="">All match types</option>{Object.entries(MATCH_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
@@ -151,7 +152,8 @@ export function FindingDetailPage({ id }: { id: number }) {
       </div>
       <section className="card">
         <h2>Status</h2>
-        <p className="small muted">Last changed <When iso={f.status_changed_at} /> by {f.status_changed_by}. {f.status_note}</p>
+        <p className="small muted">Last changed <When iso={f.status_changed_at} /> by {f.status_changed_by}. {f.status_note}
+          {f.vendor_priority && <> Distro rating: <strong>{f.vendor_priority}</strong>.</>}</p>
         <form className="inline-form" onSubmit={async (e) => {
           e.preventDefault();
           try {
@@ -163,6 +165,7 @@ export function FindingDetailPage({ id }: { id: number }) {
             <select value={status || f.status} onChange={(e) => setStatus(e.target.value)}>
               <option value="open">Open</option><option value="acknowledged">Acknowledged</option>
               <option value="resolved">Resolved</option><option value="false_positive">False positive</option>
+              {f.status === "minor" && <option value="minor" disabled>Minor (set by Patchy)</option>}
             </select>
           </Field>
           <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} placeholder="Why?" size={40} /></Field>

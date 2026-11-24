@@ -2,6 +2,19 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.16.0 - 2026-11-24
+
+### Added
+- **Distro ratings**: Patchy now keeps Debian's urgency and Ubuntu's priority for each advisory. Findings rated *unimportant* or *negligible* get a new automatic status, **Minor**, and leave the open counts, alerts, fix plans, trend and Home Assistant sensors. Known-exploited advisories are never set aside, a raised rating reopens the finding, and setting it to Open by hand keeps it open.
+- A *Minor (distro rating)* status filter, the rating on each finding, and a link on the Overview to the findings set aside.
+
+### Fixed
+- A full feed refresh with more advisories than `OSV_MAX_ADVISORY_FETCH_PER_REFRESH` re-fetched the same ones every time. It now re-fetches the oldest first, so every advisory is refreshed in turn.
+
+### Upgrade notes
+- Adds one nullable column (`findings.vendor_priority`). The migration runs on start and changes no existing data.
+- Expect the open count to drop over the next few refreshes as ratings arrive. The trend chart will show the drop.
+
 ## 1.15.0 - 2026-11-23
 
 ### Added

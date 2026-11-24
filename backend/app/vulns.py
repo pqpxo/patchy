@@ -126,8 +126,15 @@ def upsert_advisory(db: Session, rec: dict, source: str = "osv") -> Advisory:
     adv.references = [{"type": r.get("type"), "url": r.get("url")} for r in rec.get("references") or []
                       if str(r.get("url", "")).startswith(("https://", "http://"))][:100]
     keep_cpe = [a for a in adv.affected or [] if (a.get("package") or {}).get("ecosystem") == cpe.ECOSYSTEM]
-    adv.affected = [{k: a.get(k) for k in ("package", "ranges", "versions") if a.get(k)}
-                    for a in rec.get("affected") or []] + keep_cpe
+    ubuntu = next((s.get("score") for s in rec.get("severity") or [] if s.get("type") == "Ubuntu"), None)
+
+    def entry(a: dict) -> dict:
+        e = {k: a.get(k) for k in ("package", "ranges", "versions") if a.get(k)}
+        prio = (a.get("ecosystem_specific") or {}).get("urgency") or ubuntu  # Debian urgency, Ubuntu priority
+        if isinstance(prio, str) and prio.strip():
+            e["priority"] = prio.strip().lower()[:32]
+        return e
+    adv.affected = [entry(a) for a in rec.get("affected") or []] + keep_cpe
     adv.fetched_at = utcnow()
     db.add(adv)
     db.flush()
@@ -151,9 +158,10 @@ def refresh_osv(db: Session, client: httpx.Client, mode: str = "full") -> dict:
     targets = sorted(targets)[: settings.osv_max_queries]
     answers = query_osv(client, targets) if targets else {}
     want = {vid for ids, _ in answers.values() for vid in ids}
-    have = {a.id for a in db.scalars(select(Advisory).where(Advisory.id.in_(want)))} if want else set()
-    # Re-fetch existing advisories on full refresh (cheap enough within cap); new ones always.
-    to_fetch = sorted(want - have) + (sorted(have) if mode == "full" else [])
+    have = dict(db.execute(select(Advisory.id, Advisory.fetched_at).where(Advisory.id.in_(want))).all()) if want else {}
+    # Re-fetch existing advisories on full refresh, oldest first, so a cap still reaches every one in turn.
+    to_fetch = sorted(want - set(have)) + (sorted(have, key=lambda i: (str(have[i] or ""), i))
+                                           if mode == "full" else [])
     skipped = max(0, len(to_fetch) - settings.osv_max_fetch)
     to_fetch = to_fetch[: settings.osv_max_fetch]
 
@@ -327,7 +335,7 @@ def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
         q = q.where(Component.id.in_(component_ids))
     now = utcnow()
     cache = {(o.ecosystem, o.name, o.version): o for o in db.scalars(select(OsvQuery))}
-    stats = {"components": 0, "new": 0, "auto_resolved": 0, "reopened": 0}
+    stats = {"components": 0, "new": 0, "auto_resolved": 0, "reopened": 0, "minor": 0}
     comps = db.scalars(q).all()
     pkgs = eol.host_packages(db, [c.host_id for c in comps if c.host_id])
     eol_data = eol.load(db)
@@ -372,7 +380,8 @@ def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
         for adv_id, (adv, res) in matched.items():
             f = existing.get(adv_id)
             if not f:
-                f = Finding(component_id=c.id, advisory_id=adv_id, first_detected_at=now)
+                f = Finding(component_id=c.id, advisory_id=adv_id, first_detected_at=now, status="open",
+                            status_changed_by="system", status_changed_at=now)
                 db.add(f)
                 stats["new"] += 1
             elif f.status == "resolved" and f.status_changed_by == "system":
@@ -382,11 +391,23 @@ def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
             f.affected_ranges, f.fixed_versions = res.affected_ranges, res.fixed_versions
             f.remediation = remediation_text(c, adv, res.fixed_versions, res.affected_ranges)
             f.currently_matching, f.last_checked_at = True, now
+            f.vendor_priority = m.priority_for(adv.affected, ident[0], ident[1]) if ident else None
+            minor = f.vendor_priority in m.MINOR and not adv.kev  # known exploited is never set aside
+            if minor and f.status == "open" and f.status_changed_by == "system":
+                distro = m.ecosystem_base(ident[0])
+                f.status, f.status_changed_at = "minor", now
+                f.status_note = (f"Set aside automatically: {distro} rates this {f.vendor_priority}, so it doesn't "
+                                 "plan a security update. Set it to Open to track it anyway.")
+                stats["minor"] += 1
+            elif not minor and f.status == "minor":
+                f.status, f.status_changed_at, f.status_changed_by = "open", now, "system"
+                f.status_note = "Reopened automatically: the distro raised its rating, or it is now known exploited."
+                stats["reopened"] += 1
         for adv_id, f in existing.items():
             if adv_id in matched:
                 continue
             f.currently_matching, f.last_checked_at = False, now
-            if f.status in ("open", "acknowledged"):
+            if f.status in ("open", "acknowledged", "minor"):
                 why = "component no longer present in latest scan" if c.missing_since else \
                     f"version {c.version or 'unknown'} no longer matches the advisory"
                 f.status, f.status_note = "resolved", f"Resolved automatically: {why}."
