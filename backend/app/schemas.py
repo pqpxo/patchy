@@ -15,9 +15,10 @@ Notes = Annotated[str | None, StringConstraints(max_length=5000)]
 ComponentType = Literal["language", "library", "web_server", "database", "os_package", "container_image",
                         "application", "service", "other"]
 Ecosystem = Literal["PyPI", "npm", "Go", "crates.io", "Packagist", "Maven", "RubyGems", "NuGet"]
-FindingStatus = Literal["open", "acknowledged", "resolved", "false_positive"]  # what a person can set
-# 'minor' and 'risk_accepted' are set by Patchy: from the distro's rating, and by accepted-risk rules
 AnyFindingStatus = Literal["open", "acknowledged", "resolved", "false_positive", "minor", "risk_accepted"]
+# Set only by Patchy, from the distro's rating and by accepted-risk rules. A person can keep one (to edit the
+# note) but not choose it.
+AUTO_STATUSES = ("minor", "risk_accepted")
 
 
 class In(BaseModel):
@@ -105,7 +106,7 @@ class RepoIn(In):
 
 
 class FindingStatusIn(In):
-    status: FindingStatus
+    status: AnyFindingStatus
     note: Annotated[str | None, StringConstraints(max_length=2000)] = None
 
 
