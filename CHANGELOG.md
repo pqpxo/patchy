@@ -2,6 +2,15 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.20.0 - 2026-11-25
+
+### Added
+- **Weekly digest**: one message every Monday at 08:00 UTC to the alert destinations, with open findings by severity, known exploited, overdue, what was found and fixed that week, and the five hosts with most to fix. Turn it on in **Settings > Alerts**. Off by default.
+- A **Send now** button to see the digest straight away.
+
+### Upgrade notes
+- No migration.
+
 ## 1.19.0 - 2026-11-25
 
 ### Added
