@@ -72,6 +72,8 @@ class Host(Base):
     # {image ref: {image_id, scanned_at, requested}} for images in use whose packages were scanned. When a ref's
     # image ID changes (a pull or rebuild), the new image is queued for a scan once ("requested" holds its ID).
     image_scans: Mapped[dict | None] = mapped_column(JSON)
+    # Latest agent report (1.6+, apt hosts): {packages, held_back, lists_at, reboot_required, can_upgrade, ...}
+    updates: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
     agent: Mapped["Agent | None"] = relationship(back_populates="host", cascade="all, delete-orphan")
 
@@ -90,6 +92,22 @@ class Agent(Base):
     last_ip: Mapped[str | None] = mapped_column(String(64))
     agent_version: Mapped[str | None] = mapped_column(String(32))
     host: Mapped[Host] = relationship(back_populates="agent")
+
+
+class UpgradeRun(Base):
+    """Run upgrade on a host page. The host's own root service runs apt-get update && apt-get upgrade."""
+    __tablename__ = "upgrade_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    host_id: Mapped[int] = mapped_column(ForeignKey("hosts.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="queued")  # queued|sent|succeeded|failed
+    requested_by: Mapped[str] = mapped_column(String(64))
+    requested_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+    sent_at: Mapped[datetime | None] = mapped_column(TS)  # handed to the agent at a check-in
+    started_at: Mapped[datetime | None] = mapped_column(TS)
+    finished_at: Mapped[datetime | None] = mapped_column(TS)
+    exit_code: Mapped[int | None] = mapped_column(Integer)
+    output: Mapped[str | None] = mapped_column(Text)  # the end of apt's output
+    note: Mapped[str | None] = mapped_column(String(255))
 
 
 class Repository(Base):

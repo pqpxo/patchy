@@ -2,7 +2,7 @@
 # Install or upgrade the Patchy agent. Run as root from the directory containing patchy_agent.py:
 #   sudo sh install.sh https://patchy.example.lan
 # The token is read from a prompt (or stdin) so it never appears in shell history or `ps`.
-# Re-running upgrades the script and keeps the existing config and token.
+# Re-running upgrades the script and keeps the existing config, token and answers.
 set -eu
 
 SERVER_URL="${1:-}"
@@ -86,6 +86,68 @@ if grep -q '"docker_images": true' "$ETC/config.json" 2>/dev/null; then
   fi
 fi
 
+# Upgrades from Patchy: off unless you say yes. Asked once; to change your answer, delete $ETC/upgrades and re-run.
+if command -v apt-get >/dev/null && [ ! -f "$ETC/upgrades" ]; then
+  printf "Let Patchy's Run upgrade button run 'apt-get update && apt-get upgrade' on this host? A root service runs only that command, and only when you press it. [y/N] "
+  read -r ANSWER || ANSWER=""
+  case "$ANSWER" in [yY]*) echo yes;; *) echo no;; esac > "$ETC/upgrades"
+  chmod 0644 "$ETC/upgrades"
+fi
+if command -v apt-get >/dev/null && [ "$(cat "$ETC/upgrades" 2>/dev/null)" = yes ]; then
+  UPGRADES=yes; POLL=1min
+  # Runs as root. It never reads what the agent writes: only the request file's timestamp, so the
+  # unprivileged agent can ask for an upgrade and nothing else. Its log stays in its own directory.
+  cat > "$LIB/upgrade.sh" <<'UPGRADE'
+#!/bin/sh
+set -u
+export DEBIAN_FRONTEND=noninteractive PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C
+OUT=/var/lib/patchy-agent-upgrade
+ASKED=$(stat -c %Y /var/lib/patchy-agent/upgrade-request 2>/dev/null) || exit 0
+LAST=$(cat "$OUT/last-request" 2>/dev/null || echo 0)
+[ "$ASKED" -gt "$LAST" ] 2>/dev/null || exit 0
+echo "$ASKED" > "$OUT/last-request"
+STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+{
+  echo "# apt-get update && apt-get upgrade (requested from Patchy)"
+  apt-get -o DPkg::Lock::Timeout=600 update && apt-get -y -o DPkg::Lock::Timeout=600 \
+    -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade
+} > "$OUT/upgrade.log" 2>&1 < /dev/null
+CODE=$?
+printf '{"exit_code": %d, "started_at": "%s", "finished_at": "%s"}\n' "$CODE" "$STARTED" \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$OUT/result.json.tmp"
+mv -f "$OUT/result.json.tmp" "$OUT/result.json"
+systemctl start --no-block patchy-agent.service
+UPGRADE
+  chmod 0755 "$LIB/upgrade.sh"
+  cat > /etc/systemd/system/patchy-agent-upgrade.service <<EOF
+[Unit]
+Description=apt-get update and upgrade, when Patchy's Run upgrade is pressed (root, fixed command)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh $LIB/upgrade.sh
+StateDirectory=patchy-agent-upgrade
+TimeoutStartSec=2h
+EOF
+  cat > /etc/systemd/system/patchy-agent-upgrade.path <<EOF
+[Unit]
+Description=Watch for Run upgrade requests from Patchy
+
+[Path]
+PathChanged=/var/lib/patchy-agent/upgrade-request
+Unit=patchy-agent-upgrade.service
+
+[Install]
+WantedBy=paths.target
+EOF
+else
+  UPGRADES=no; POLL=5min
+  systemctl disable --now patchy-agent-upgrade.path 2>/dev/null || true
+  rm -f /etc/systemd/system/patchy-agent-upgrade.service /etc/systemd/system/patchy-agent-upgrade.path "$LIB/upgrade.sh"
+fi
+
 HARDENING="StateDirectory=patchy-agent
 NoNewPrivileges=yes
 CapabilityBoundingSet=
@@ -127,10 +189,10 @@ ExecStart=/usr/bin/env python3 $LIB/patchy_agent.py --config $ETC/config.json
 $HARDENING
 EOF
 
-# Asks Patchy every 5 minutes whether Rescan was pressed; sends a normal report only if it was.
+# Asks Patchy whether Rescan (or Run upgrade) was pressed: every minute if upgrades are allowed, else every 5.
 cat > /etc/systemd/system/patchy-agent-poll.service <<EOF
 [Unit]
-Description=Patchy agent rescan check (read-only, outbound)
+Description=Patchy agent rescan check (outbound)
 Wants=network-online.target
 After=network-online.target
 
@@ -144,12 +206,12 @@ EOF
 
 cat > /etc/systemd/system/patchy-agent-poll.timer <<EOF
 [Unit]
-Description=Check every 5 minutes whether Patchy wants a fresh report
+Description=Check every $POLL whether Patchy wants a fresh report or an upgrade
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=5min
-RandomizedDelaySec=30s
+OnUnitActiveSec=$POLL
+RandomizedDelaySec=10s
 
 [Install]
 WantedBy=timers.target
@@ -171,6 +233,10 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now patchy-agent.timer patchy-agent-poll.timer
+if [ "$UPGRADES" = yes ]; then
+  systemctl enable --now patchy-agent-upgrade.path
+  echo "Run upgrade is allowed: Patchy can start 'apt-get update && apt-get upgrade' here."
+fi
 echo "Checking credential..."
 runuser -u "$USER_NAME" -- python3 "$LIB/patchy_agent.py" --config "$ETC/config.json" --check || {
   echo "Credential check failed. Fix $ETC/config.json or $ETC/token, then: sudo systemctl start patchy-agent" >&2; exit 1; }

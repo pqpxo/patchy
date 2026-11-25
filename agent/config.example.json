@@ -10,6 +10,7 @@
     "listening_ports": true,
     "services": true,
     "in_use": true,
+    "updates": true,
     "docker_images": false,
     "image_packages": true,
     "image_scan": "manual",
