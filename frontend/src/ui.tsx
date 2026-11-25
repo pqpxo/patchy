@@ -171,10 +171,12 @@ export function Kev({ on }: { on: boolean }) {
 }
 
 /** Network exposure from the agent: a process listening beyond loopback, or a container publishing a port. */
-export function Reach({ e, note }: { e?: string | null; note?: string | null }) {
-  if (e === "network") return <span className="badge tone-warn" title={note ?? "Reachable over the network"}>Network</span>;
-  if (e === "local") return <span className="badge tone-muted" title={note ?? "Listens on loopback only"}>Local</span>;
-  return null;
+export function Reach({ e, note, inUse }: { e?: string | null; note?: string | null; inUse?: boolean | null }) {
+  const idle = inUse === false
+    && <span className="badge st-minor" title="No running program comes from this package, so it ranks lower">Not running</span>;
+  if (e === "network") return <><span className="badge tone-warn" title={note ?? "Reachable over the network"}>Network</span>{idle}</>;
+  if (e === "local") return <><span className="badge tone-muted" title={note ?? "Listens on loopback only"}>Local</span>{idle}</>;
+  return idle || null;
 }
 
 export function CheckState({ s }: { s: string }) {

@@ -10,6 +10,7 @@ def _ingest(auth_client, client, host, **over):
     rep["packages"].append({"manager": "dpkg", "name": "postgresql-15", "version": "15.4-0+deb12u1",
                             "source_name": "postgresql-15", "source_version": "15.4-0+deb12u1", "arch": "arm64"})
     rep["listening"].append({"protocol": "tcp", "ip": "127.0.0.1", "port": 5432, "process": "postgresql-15"})
+    rep["in_use"].append("postgresql-15")  # it listens, so it runs
     assert client.post("/api/agent/report", json=rep, headers={"Authorization": f"Bearer {token}"}).status_code == 200
 
 
