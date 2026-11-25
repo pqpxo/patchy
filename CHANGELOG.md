@@ -2,6 +2,15 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.21.1 - 2026-11-25
+
+### Fixed
+- The demo listened on the wrong port when started in a folder that also has a real install's `.env`, because Compose filled in `$PORT` from it. It now always listens on `DEMO_PORT` (8081 by default).
+- The demo now runs as its own stack, `patchy-demo`, so it never shares a network with a real Patchy's database in the same folder.
+
+### Upgrade notes
+- If you started the 1.21.0 demo, remove it first with `docker rm -f patchy-demo-1`, then start it again.
+
 ## 1.21.0 - 2026-11-25
 
 ### Added

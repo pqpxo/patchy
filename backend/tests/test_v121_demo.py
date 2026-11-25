@@ -42,6 +42,15 @@ def test_outside_demo_mode_nothing_changes(client, loaded):
     assert client.get("/api/auth/me").status_code == 401  # the demo user isn't a way in on a real install
 
 
+def test_demo_compose_is_its_own_stack_and_leaves_the_port_to_the_container():
+    import pathlib
+    import re
+    text = (pathlib.Path(__file__).resolve().parents[2] / "docker-compose.demo.yml").read_text(encoding="utf-8")
+    command = next(line for line in text.splitlines() if line.strip().startswith("command:"))
+    assert not re.search(r"(?<!\$)\$(?!\$)", command)  # a single $ is filled in from a real install's .env
+    assert re.search(r"^name: patchy-demo$", text, re.M)  # never on the same network as a real database
+
+
 def test_demo_mode_set_by_mistake_on_a_real_install_lets_no_one_in(client, db, monkeypatch):
     from datetime import timedelta
 
