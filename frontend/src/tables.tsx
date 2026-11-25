@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 import type { Asset, Finding } from "./api";
 import { TYPES, label, versionText } from "./format";
-import { CheckState, DataTable, Eol, Epss, Kev, Link, Match, Reach, Sev, Status, When, type Col, type SortState } from "./ui";
+import { CheckState, DataTable, Due, Eol, Epss, Kev, Link, Match, Reach, Sev, Status, When, type Col, type SortState } from "./ui";
 
 const assetCols: Col<Asset>[] = [
   { id: "name", label: "Name", sort: "name", fixed: true, cell: (a) => <>
@@ -59,6 +59,7 @@ const findingCols: Col<Finding>[] = [
   { id: "status", label: "Status", sort: "status", cell: (f) => <>
     <Status s={f.status} />{!f.currently_matching && <div className="cell-sub">no longer matches</div>}
   </> },
+  { id: "due", label: "Due", cell: (f) => <Due iso={f.due_at} /> },
   { id: "detected", label: "First seen", sort: "detected", first: "desc", hidden: true, cell: (f) => <When iso={f.first_detected_at} /> },
   { id: "published", label: "Published", sort: "published", first: "desc", hidden: true,
     cell: (f) => f.advisory.published ? f.advisory.published.slice(0, 10) : <span className="muted">-</span> },

@@ -73,6 +73,8 @@ function Palette({ onClose }: { onClose: () => void }) {
       { label: "Accepted risk rules", to: "/settings?tab=risks", kind: "Settings" },
       { label: "Version and changelog", to: "/settings?tab=about", kind: "Settings" },
       { label: "Known exploited findings", to: "/vulnerabilities?kev=true", kind: "Filter" },
+      { label: "Overdue findings", to: "/vulnerabilities?overdue=true", kind: "Filter" },
+      { label: "Fix-by deadlines", to: "/settings?tab=deadlines", kind: "Settings" },
       { label: "End-of-life assets", to: "/assets?eol_state=eol", kind: "Filter" },
     ];
     const t = q.trim().toLowerCase();

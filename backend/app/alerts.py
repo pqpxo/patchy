@@ -19,14 +19,15 @@ import httpx
 from sqlalchemy import and_, false, or_, select
 from sqlalchemy.orm import Session
 
+from . import deadlines
 from .db import utcnow
 from .models import Advisory, Agent, AlertSent, AppSetting, Component, Finding, Host, Repository
 
 log = logging.getLogger("patchy.alerts")
 SILENT_CHOICES = (0, 6, 12, 24, 48, 72)  # 0 = off
-DEFAULTS = {"kev": True, "critical": True, "eol": True, "silent_hours": 24, "paused": False}
-HEADINGS = {"kev": "Known exploited (CISA KEV)", "critical": "Critical", "silent": "Hosts not reporting",
-            "eol": "End of life"}
+DEFAULTS = {"kev": True, "critical": True, "overdue": False, "eol": True, "silent_hours": 24, "paused": False}
+HEADINGS = {"kev": "Known exploited (CISA KEV)", "critical": "Critical", "overdue": "Past the fix-by deadline",
+            "silent": "Hosts not reporting", "eol": "End of life"}
 PER_GROUP = 10
 PUSHOVER_API = "https://api.pushover.net/1/messages.json"
 # name: (environment variable, secret, default)
@@ -50,7 +51,7 @@ FIELDS = {
 @dataclass
 class Item:
     key: str
-    kind: str  # kev|critical|silent|eol
+    kind: str  # kev|critical|overdue|silent|eol
     text: str
     path: str  # page in Patchy
 
@@ -152,6 +153,22 @@ def collect(db: Session, cfg: dict) -> list[Item]:
         what = f"{cname} {cversion}" if cversion else cname
         items.append(Item(f"finding:{fid}", kind, f"{name} in {what} on {_where(*where)}", f"/vulnerabilities/{fid}"))
 
+    # Overdue: one alert per finding when it passes its deadline. Collected while off too, so it's marked seen.
+    for fid, adv_id, cve_ids, cname, cversion, sev, kev, added, detected, *where in db.execute(
+            select(Finding.id, Advisory.id, Advisory.cve_ids, Component.name, Component.version, Advisory.severity,
+                   Advisory.kev, Advisory.kev_date_added, Finding.first_detected_at, *WHERE)
+            .join(Advisory, Finding.advisory_id == Advisory.id).join(Component, Finding.component_id == Component.id)
+            .outerjoin(Host, Component.host_id == Host.id).outerjoin(Repository, Component.repository_id == Repository.id)
+            .where(Finding.status == "open", Finding.currently_matching.is_(True), Component.missing_since.is_(None),
+                   Finding.match_status.in_(["confirmed", "possible"]), *NOT_DEMO,
+                   deadlines.overdue(deadlines.config(db)))):
+        cve = next(iter(cve_ids or []), None)
+        name = adv_id if not cve or cve == adv_id else f"{cve} ({adv_id})"
+        what = f"{cname} {cversion}" if cversion else cname
+        due = deadlines.due_at(deadlines.config(db), sev, kev, added, detected)
+        items.append(Item(f"overdue:{fid}", "overdue", f"{name} in {what} on {_where(*where)}, due {due:%d %b %Y}",
+                          f"/vulnerabilities/{fid}"))
+
     # While this alert is off, still collect at the shortest choice so outages are marked seen and not
     # replayed when it's turned back on (run() doesn't send silent items when silent_hours is 0).
     cutoff = utcnow() - timedelta(hours=cfg["silent_hours"] or min(h for h in SILENT_CHOICES if h))
@@ -179,9 +196,9 @@ def collect(db: Session, cfg: dict) -> list[Item]:
 
 def compose(items: list[Item], patchy_url: str = "") -> tuple[str, str]:
     counts = {k: sum(i.kind == k for i in items) for k in HEADINGS}
-    words = {"kev": "exploited vulnerability", "critical": "critical vulnerability", "silent": "host not reporting",
-             "eol": "end-of-life item"}
-    plural = {"kev": "exploited vulnerabilities", "critical": "critical vulnerabilities",
+    words = {"kev": "exploited vulnerability", "critical": "critical vulnerability", "overdue": "overdue finding",
+             "silent": "host not reporting", "eol": "end-of-life item"}
+    plural = {"kev": "exploited vulnerabilities", "critical": "critical vulnerabilities", "overdue": "overdue findings",
               "silent": "hosts not reporting", "eol": "end-of-life items"}
     title = "Patchy: " + ", ".join(f"{n} {words[k] if n == 1 else plural[k]}" for k, n in counts.items() if n)
     lines = []

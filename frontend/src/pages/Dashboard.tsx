@@ -6,7 +6,8 @@ import { Epss, ErrorBox, Kev, Link, PageHead, Reach, Sev, Skeleton, Status, When
 
 interface Dash {
   severity: Record<string, number>; match_status: Record<string, number>; status: Record<string, number>;
-  kev_open: number; top_assets: { id: number; name: string; version: string | null; location: string | null; open: number; max_severity: string }[];
+  kev_open: number; overdue: number; time_to_fix: { days: number; fixed: number; median_days: number | null; on_time_pct: number | null };
+  top_assets: { id: number; name: string; version: string | null; location: string | null; open: number; max_severity: string }[];
   coverage: { total: number; not_checkable: number; version_unknown: number; not_checked_yet: number; checked: number };
   end_of_life: { eol: number; eol_soon: number; hosts_eol: number; hosts_eol_soon: number };
   feeds: Feed[]; feed_stale: boolean; recent_scans: { id: number; kind: string; status: string; target: string | null; created_at: string; finished_at: string | null }[];
@@ -121,10 +122,18 @@ function ExposureStrip({ d }: { d: Dash }) {
         <Link to="/vulnerabilities?kev=true&status=open" className={d.kev_open ? "kev-n" : "zero"}>
           <span className="n">{d.kev_open}</span><span className="l">known exploited</span>
         </Link>
+        <Link to="/vulnerabilities?overdue=true" className={d.overdue ? "kev-n" : "zero"}>
+          <span className="n">{d.overdue}</span><span className="l">overdue</span>
+        </Link>
       </div>
       {(unknownOpen > 0 || minor > 0) && <p className="small muted">
         {unknownOpen > 0 && <>A further <Link to="/vulnerabilities?match_status=unknown_version">{unknownOpen} need a version</Link> before Patchy can confirm them. </>}
         {minor > 0 && <><Link to="/vulnerabilities?status=minor">{minor} more</Link> are set aside because the distro rates them unimportant or negligible.</>}
+      </p>}
+      {d.time_to_fix.fixed > 0 && <p className="small muted">
+        Last {d.time_to_fix.days} days: {d.time_to_fix.fixed} fixed, typically {(d.time_to_fix.median_days ?? 0) < 1 ? "within a day"
+          : `after ${d.time_to_fix.median_days} day${d.time_to_fix.median_days === 1 ? "" : "s"}`}
+        {d.time_to_fix.on_time_pct != null && <>, {d.time_to_fix.on_time_pct}% by their deadline</>}.
       </p>}
     </section>
   );
