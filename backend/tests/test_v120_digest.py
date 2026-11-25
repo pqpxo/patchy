@@ -69,3 +69,10 @@ def test_digest_api(auth_client, monkeypatch):
     monkeypatch.setattr(alerts, "send", lambda *a: {"webhook": None})
     assert auth_client.post("/api/alerts/digest").json() == {"results": {"webhook": None}}
     assert auth_client.get("/api/settings").json()["alerts"]["status"]["digest_sent_at"]
+
+
+def test_test_sends_dont_use_up_the_digest_limit(auth_client, monkeypatch):
+    monkeypatch.setenv("ALERT_WEBHOOK_URL", "http://hook.invalid/secret-id")
+    monkeypatch.setattr(alerts, "send", lambda *a: {"webhook": None})
+    assert [auth_client.post("/api/alerts/test").status_code for _ in range(6)] == [200] * 5 + [429]
+    assert auth_client.post("/api/alerts/digest").status_code == 200

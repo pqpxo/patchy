@@ -2,6 +2,11 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.20.1 - 2026-11-25
+
+### Fixed
+- The weekly digest's **Send now** shared a limit with **Send test**, so after a few test alerts it answered "Too many requests". Each now has its own limit of 5 sends per 5 minutes.
+
 ## 1.20.0 - 2026-11-25
 
 ### Added
