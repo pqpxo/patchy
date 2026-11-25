@@ -29,7 +29,7 @@ from .config import settings
 from .db import Base, SessionLocal, utcnow
 from .inventory import sync_components
 from .models import (Advisory, AdvisoryPackage, Agent, AppSetting, Component, Finding, FeedStatus, Host, OsvQuery,
-                     Repository, RiskRule, ScanRun, User, UserSession, UTCDateTime)
+                     Repository, RiskRule, ScanRun, UpgradeRun, User, UserSession, UTCDateTime)
 from .security import hash_password, sha256
 
 SNAPSHOT = pathlib.Path(__file__).with_name("demo_snapshot.json.gz")
@@ -119,11 +119,31 @@ def _hosts(phase: int) -> list[dict]:
             _pkg("libc6", "2.28-10+deb10u3", "glibc"), _pkg("sudo", "1.8.27-1+deb10u6")],
             [("tcp", "0.0.0.0", 80, "apache2"), ("tcp", "0.0.0.0", 22, None)],
             ["libc6", "libssl1.1", "apache2", "php7.3", "openssh-server"], [], []))
+    def upd(name, installed, available, security=False):
+        return {"name": name, "installed": installed, "available": available, "security": security}
+    lists_at = (utcnow() - timedelta(hours=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    updates = {  # pending apt updates today: pi-dns allows Run upgrade, homeserver doesn't and wants a reboot
+        "pi-dns": {"manager": "apt", "lists_at": lists_at, "reboot_required": False, "reboot_packages": [], "can_upgrade": True,
+                   "held_back": [], "packages": [
+            upd("curl", "7.88.1-10+deb12u5", "7.88.1-10+deb12u8", True), upd("libcurl4", "7.88.1-10+deb12u5", "7.88.1-10+deb12u8", True),
+            upd("git", "1:2.39.2-1.1", "1:2.39.5-0+deb12u2", True), upd("libexpat1", "2.5.0-1", "2.5.0-1+deb12u1", True),
+            upd("python3.11", "3.11.2-6", "3.11.2-6+deb12u4", True), upd("tar", "1.34+dfsg-1.2", "1.34+dfsg-1.2+deb12u1"),
+            upd("systemd", "252.22-1~deb12u1", "252.33-1~deb12u1")]},
+        "homeserver": {"manager": "apt", "lists_at": lists_at, "reboot_required": True,
+                       "reboot_packages": ["linux-image-6.8.0-47-generic"], "can_upgrade": False,
+                       "held_back": ["linux-generic", "linux-headers-generic", "linux-image-generic"], "packages": [
+            upd("curl", "8.5.0-2ubuntu10.1", "8.5.0-2ubuntu10.6", True), upd("git", "1:2.43.0-1ubuntu7", "1:2.43.0-1ubuntu7.2", True),
+            upd("libxml2", "2.9.14+dfsg-1.3ubuntu3", "2.9.14+dfsg-1.3ubuntu3.3", True), upd("vim", "2:9.1.0016-1ubuntu7", "2:9.1.0016-1ubuntu7.8", True),
+            upd("less", "590-2ubuntu2", "590-2ubuntu2.1", True),
+            upd("docker-ce", "5:27.3.1-1~ubuntu.24.04~noble", "5:27.5.1-1~ubuntu.24.04~noble"),
+            upd("containerd.io", "1.7.22-1", "1.7.25-1")]},
+    } if new else {}
     out = []
     for name, ip, kernel, arch, os_info, pkgs, listening, running, ctrs, images in reports:
-        out.append({"name": name, "version": "1.3.0" if name == "old-wiki" else "1.5.0", "report": {
+        out.append({"name": name, "version": "1.3.0" if name == "old-wiki" else "1.6.0", "report": {
             "schema": 1, "report_id": str(uuid.UUID(int=random.Random(f"{name}{phase}").getrandbits(128))),
-            "agent_version": "1.3.0" if name == "old-wiki" else "1.5.0", "generated_at": utcnow().isoformat(),
+            "agent_version": "1.3.0" if name == "old-wiki" else "1.6.0", "generated_at": utcnow().isoformat(),
+            "updates": updates.get(name),
             "host": {"hostname": name, "ips": [ip], "kernel": kernel, "arch": arch, "os": os_info},
             "packages": [{**p, "arch": "arm64" if arch == "aarch64" else "amd64"} for p in pkgs],
             "listening": [{"protocol": pr, "ip": i, "port": po, "process": n} for pr, i, po, n in listening],
@@ -242,6 +262,40 @@ def _ago(rng: random.Random, lo: int, hi: int) -> datetime:
     return utcnow() - timedelta(days=rng.randint(lo, hi), hours=rng.randint(0, 23), minutes=rng.randint(0, 59))
 
 
+UPGRADE_LOG = """# apt-get update && apt-get upgrade (requested from Patchy)
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Get:2 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+Get:3 http://security.debian.org/debian-security bookworm-security InRelease [48.0 kB]
+Get:4 http://security.debian.org/debian-security bookworm-security/main arm64 Packages [241 kB]
+Fetched 344 kB in 2s (171 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Calculating upgrade...
+The following packages will be upgraded:
+  libc6 libssl3 openssh-client openssh-server openssl
+5 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+Need to get 6,412 kB of archives.
+After this operation, 12.3 kB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian bookworm/main arm64 libc6 arm64 2.36-9+deb12u7 [2,322 kB]
+Get:2 http://security.debian.org/debian-security bookworm-security/main arm64 libssl3 arm64 3.0.15-1~deb12u1 [1,808 kB]
+Get:3 http://security.debian.org/debian-security bookworm-security/main arm64 openssl arm64 3.0.15-1~deb12u1 [1,383 kB]
+Get:4 http://deb.debian.org/debian bookworm/main arm64 openssh-server arm64 1:9.2p1-2+deb12u3 [445 kB]
+Get:5 http://deb.debian.org/debian bookworm/main arm64 openssh-client arm64 1:9.2p1-2+deb12u3 [454 kB]
+Fetched 6,412 kB in 1s (5,104 kB/s)
+Preparing to unpack .../libc6_2.36-9+deb12u7_arm64.deb ...
+Unpacking libc6:arm64 (2.36-9+deb12u7) over (2.36-9+deb12u4) ...
+Setting up libc6:arm64 (2.36-9+deb12u7) ...
+Setting up libssl3:arm64 (3.0.15-1~deb12u1) ...
+Setting up openssl (3.0.15-1~deb12u1) ...
+Setting up openssh-client (1:9.2p1-2+deb12u3) ...
+Setting up openssh-server (1:9.2p1-2+deb12u3) ...
+Processing triggers for man-db (2.11.2-2) ...
+Processing triggers for libc-bin (2.36-9+deb12u7) ...
+"""
+
+
 def load(db: Session) -> dict:
     """Fill an empty database with the demo lab. Refuses a database that has anything in it."""
     if db.scalar(select(func.count()).select_from(User)) or db.scalar(select(func.count()).select_from(Host)):
@@ -289,6 +343,10 @@ def load(db: Session) -> dict:
                             (finding(pi, "git"), "false_positive", "git only clones our own repositories here.")):
         if f:
             f.status, f.status_note, f.status_changed_by, f.status_changed_at = status, note, DEMO_USER, _ago(rng, 1, 10)
+    done = utcnow() - timedelta(days=12, hours=2)
+    db.add(UpgradeRun(host_id=pi.id, status="succeeded", requested_by=DEMO_USER, requested_at=done - timedelta(minutes=3),
+                      sent_at=done - timedelta(minutes=2, seconds=40), started_at=done - timedelta(minutes=2, seconds=31),
+                      finished_at=done, exit_code=0, output=UPGRADE_LOG))
     db.add(RiskRule(package="apache2", host_id=old.id, reason="old-wiki is being retired and sits on an isolated VLAN.",
                     created_by=DEMO_USER, expires_at=utcnow() + timedelta(days=24)))
     db.flush()

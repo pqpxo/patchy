@@ -8,12 +8,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .. import matching as m
-from .. import registry, repo_scanner, vulns
+from .. import registry, repo_scanner, upgrades, vulns
 from ..db import get_db, utcnow
 from ..models import (Advisory, Agent, Component, ComponentObservation, ComponentPath, Finding, Host, HostPath,
-                      HostService, Repository, ScanRun, User)
+                      HostService, Repository, ScanRun, UpgradeRun, User)
 from ..schemas import (AgentOut, AgentTokenOut, AssetIn, ComponentDetail, ComponentOut, HostIn, HostOut, ImageScanIn,
-                       HostPathOut, ObservationOut, Page, RepoIn, RepoOut, ScanRunOut, ServiceOut)
+                       HostPathOut, ObservationOut, Page, RepoIn, RepoOut, ScanRunOut, ServiceOut, UpgradeRunOut)
 from ..security import audit, client_ip, new_agent_token, require_user, sha256
 from ..worker import enqueue
 from .common import OPEN, bundled_agent_version, component_out, finding_out, finding_stats, paginate, repo_label
@@ -206,7 +206,12 @@ def delete_asset(asset_id: int, request: Request, db: Session = Depends(get_db),
 # ---------------- hosts + agents ----------------
 
 def _host_out(db, h: Host, comps=None, opens=None) -> HostOut:
+    pkgs = (h.updates or {}).get("packages") if h.updates else None
     return HostOut.model_validate({**{k: getattr(h, k) for k in HostOut.model_fields if hasattr(h, k)},
+                                   "pending_updates": len(pkgs) if pkgs is not None else None,
+                                   "security_updates": sum(1 for p in pkgs or [] if p.get("security")),
+                                   "reboot_required": bool((h.updates or {}).get("reboot_required")),
+                                   "can_upgrade": upgrades.can_upgrade(h),
                                    "agent": AgentOut.model_validate(h.agent) if h.agent else None,
                                    "agent_outdated": bool(h.agent and h.agent.agent_version and not h.agent.revoked_at
                                                           and h.agent.agent_version != bundled_agent_version()),
@@ -339,6 +344,36 @@ def rescan_host(host_id: int, request: Request, db: Session = Depends(get_db), u
     audit(db, user.username, "host.rescan", "host", h.id, {}, client_ip(request))
     db.commit()
     return _host_out(db, h, _comp_counts(db, Component.host_id, [h.id]), _open_counts(db, Component.host_id, [h.id]))
+
+
+@router.get("/hosts/{host_id}/updates")
+def host_updates(host_id: int, db: Session = Depends(get_db), _: User = Depends(require_user)) -> dict:
+    """Pending apt updates (each with the open findings it fixes) and the last upgrade runs."""
+    h = _404(db.get(Host, host_id))
+    upgrades.expire(db, h.id)
+    db.commit()
+    pkgs, fixes = upgrades.pending(db, h)
+    runs = db.scalars(select(UpgradeRun).where(UpgradeRun.host_id == h.id).order_by(UpgradeRun.id.desc()).limit(10))
+    info = {k: v for k, v in (h.updates or {}).items() if k != "packages"} if h.updates else None
+    return {"updates": info, "packages": pkgs, "fixes": fixes, "can_upgrade": upgrades.can_upgrade(h),
+            "runs": [UpgradeRunOut.model_validate(r) for r in runs]}
+
+
+@router.post("/hosts/{host_id}/upgrade", response_model=UpgradeRunOut, status_code=202)
+def request_upgrade(host_id: int, request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    """Queue apt-get update && apt-get upgrade. The agent hands it to the host's root service at its next check-in."""
+    h = _404(db.get(Host, host_id))
+    if not upgrades.can_upgrade(h):
+        raise HTTPException(409, upgrades.REFUSED)
+    upgrades.expire(db, h.id)
+    if db.scalar(select(UpgradeRun.id).where(UpgradeRun.host_id == h.id, UpgradeRun.status.in_(upgrades.WAITING))):
+        raise HTTPException(409, "An upgrade is already waiting or running on this host.")
+    run = UpgradeRun(host_id=h.id, status="queued", requested_by=user.username, requested_at=utcnow())
+    db.add(run)
+    db.flush()
+    audit(db, user.username, "host.upgrade", "host", h.id, {"upgrade_run_id": run.id}, client_ip(request))
+    db.commit()
+    return UpgradeRunOut.model_validate(run)
 
 
 @router.put("/hosts/{host_id}", response_model=HostOut)

@@ -260,6 +260,23 @@ class HostOut(Out):
     component_count: int = 0
     open_findings: int = 0
     exposure: dict[str, int] | None = None
+    pending_updates: int | None = None  # None: not known (agent before 1.6, or not an apt host)
+    security_updates: int = 0
+    reboot_required: bool = False
+    can_upgrade: bool = False
+
+
+class UpgradeRunOut(Out):
+    id: int
+    status: str
+    requested_by: str
+    requested_at: datetime
+    sent_at: datetime | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    exit_code: int | None
+    output: str | None
+    note: str | None
 
 
 class ServiceOut(Out):

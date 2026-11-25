@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from sqlalchemy import Select, case, func, or_, select
 from sqlalchemy.orm import Session
 
-from .. import __version__, aiprompt, alerts, deadlines, dependabot, export, fixplan, news, sources, vulns
+from .. import __version__, aiprompt, alerts, deadlines, dependabot, export, fixplan, news, sources, upgrades, vulns
 from .. import matching as m
 from ..agent_ingest import Report, ingest
 from ..config import settings
@@ -467,8 +467,9 @@ def agent_poll(request: Request, db: Session = Depends(get_db)) -> dict:
     agent.last_seen_at, agent.last_ip = utcnow(), ip
     images = agent.host.image_scan_requests or []
     want = agent.host.rescan_requested_at is not None or bool(images)
+    upgrade = upgrades.hand_out(db, agent.host)  # agents before 1.6 never say they allow upgrades
     db.commit()
-    return {"report": want, "scan_images": images}
+    return {"report": want, "scan_images": images, "upgrade": upgrade}
 
 
 @agent_router.post("/report")

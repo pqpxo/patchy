@@ -395,6 +395,9 @@ details[open] > summary { margin-bottom: 6px; }
 .plan-summary div { display: grid; }
 .plan-summary b { font-family: var(--mono); font-size: 1.45rem; font-weight: 600; }
 .plan-summary span { font-size: 0.82rem; color: var(--ink-3); }
+.run-log { border-top: 1px solid var(--rule); padding: 8px 0; }
+.run-log > summary .badge { margin: 0 6px 0 0; }
+.run-log .code pre { max-height: 360px; overflow: auto; }
 .step { border: 1px solid var(--rule); border-radius: var(--r2); background: var(--panel); margin-bottom: 12px; }
 .step-head { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--rule); flex-wrap: wrap; }
 .step-head h3 { margin: 0; font-size: 0.98rem; }
