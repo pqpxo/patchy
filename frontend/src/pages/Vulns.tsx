@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { get, post, qs, type AuditEntry, type DependabotAlert, type Feed, type Finding, type Page } from "../api";
+import { get, post, qs, type DependabotAlert, type Feed, type Finding, type Page, type TimelineEvent } from "../api";
 import { Icon } from "../icons";
 import { MATCH_STATUS, SEVERITIES, fmtDate, pct, safeUrl } from "../format";
 import { usePrefs } from "../prefs";
@@ -34,6 +34,24 @@ export function VulnsPage() {
   }), [severity, status, match, kev, overdue, inUse, hostId, q, sort.sort, sort.order, page, pageSize]);
   const feeds = useLoad(() => get<Feed[]>("/api/feeds"), []);
   const stale = feeds.data?.find((f) => f.source === "osv")?.stale;
+  const [bulk, setBulk] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState("acknowledged");
+  const [bulkNote, setBulkNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const total = data?.total ?? 0;
+
+  async function applyBulk(e: React.FormEvent) {
+    e.preventDefault();
+    const label = STATUS_LABEL[bulkStatus];
+    if (!window.confirm(`Set ${total} ${total === 1 ? "finding" : "findings"} to ${label}? This covers every page of the list, not just this one.`)) return;
+    setBusy(true);
+    try {
+      const r = await post<{ changed: number; skipped: number }>(`/api/findings/bulk-status${qs(filters)}`,
+        { status: bulkStatus, note: bulkNote || null, expected: total });
+      toast(`${r.changed} set to ${label}.${r.skipped ? ` ${r.skipped} skipped (accepted risk, or already ${label}).` : ""}`);
+      setBulk(false); setBulkNote(""); reload();
+    } catch (err) { toast(errText(err), "bad"); } finally { setBusy(false); }
+  }
 
   const tools = (
     <>
@@ -65,12 +83,32 @@ export function VulnsPage() {
     <>
       <PageHead title="Vulnerabilities" sub="Findings from OSV and NVD, ranked by known exploitation (CISA KEV), likely exploitation (EPSS), then severity."
         actions={<>
+          <button className="btn" onClick={() => setBulk(!bulk)} disabled={!total} aria-expanded={bulk}
+            title="Change the status of every finding these filters match">Change status…</button>
           <a className="btn" href={`/api/findings/export${qs(filters)}`} download
             title="Download these findings, with the current filters and order, as CSV">Export CSV</a>
           <Link to="/fix" className="btn"><Icon name="fix" size={14} /> Fixes</Link>
         </>} />
       {stale && <div className="alert warn">OSV data is stale or has never been fetched, so this list may be incomplete. <Link to="/settings?tab=sources">Check sources</Link>.</div>}
       <ErrorBox error={error} onRetry={reload} />
+      {bulk && total > 0 && (
+        <section className="card">
+          <form className="inline-form" onSubmit={applyBulk}>
+            <Field label="Set status">
+              <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)}>
+                {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </Field>
+            <Field label="Note"><input value={bulkNote} onChange={(e) => setBulkNote(e.target.value)} maxLength={2000} placeholder="Why?" size={40} /></Field>
+            <button className="btn primary" disabled={busy || total > BULK_MAX}>Apply to {total}</button>
+            <button type="button" className="btn" onClick={() => setBulk(false)}>Cancel</button>
+          </form>
+          <p className="small muted">
+            {total > BULK_MAX ? `${total} findings match. Narrow the filters to ${BULK_MAX} or fewer first.`
+              : `Changes all ${total} findings these filters match, on every page. Findings an accepted-risk rule covers are skipped. Each change is kept in the finding's history.`}
+          </p>
+        </section>
+      )}
       {loading && !data ? <Skeleton /> : data && <>
         <FindingTable items={data.items} sort={sort} tools={tools} />
         {data.items.length === 0 && (
@@ -81,6 +119,29 @@ export function VulnsPage() {
         <Pager page={data.page} total={data.total} size={data.page_size} onPage={(p) => setPage(String(p))} />
       </>}
     </>
+  );
+}
+
+const BULK_MAX = 1000;
+const STATUS_LABEL: Record<string, string> = { open: "Open", acknowledged: "Acknowledged", resolved: "Resolved", false_positive: "False positive" };
+
+function who(actor: string) {
+  return actor === "system" ? "Patchy" : actor.startsWith("rule:") ? "an accepted-risk rule" : actor;
+}
+
+function Timeline({ events }: { events: TimelineEvent[] }) {
+  return (
+    <ol className="timeline">
+      {events.map((e, i) => (
+        <li key={i}>
+          <div>
+            {e.kind === "detected" ? <strong>Found</strong> : <Status s={e.to} />}
+            <span className="muted small"> {e.kind === "detected" ? "by Patchy" : <>by {who(e.actor)}{e.from && e.from !== e.to && <>, was {e.from.replace("_", " ")}</>}</>}, <When iso={e.at} /></span>
+          </div>
+          {e.note && <p className="small">{e.note}</p>}
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -108,7 +169,7 @@ function HowToFix({ f, dep }: { f: Finding; dep: DependabotAlert | null }) {
 }
 
 export function FindingDetailPage({ id }: { id: number }) {
-  const { data, error, reload, setData } = useLoad(() => get<{ finding: Finding; history: AuditEntry[]; feed_stale: boolean; dependabot: DependabotAlert | null }>(`/api/findings/${id}`), [id]);
+  const { data, error, reload, setData } = useLoad(() => get<{ finding: Finding; timeline: TimelineEvent[]; feed_stale: boolean; dependabot: DependabotAlert | null }>(`/api/findings/${id}`), [id]);
   const [status, setStatus] = useState("");
   const [note, setNote] = useState("");
   if (error) return <ErrorBox error={error} onRetry={reload} />;
@@ -188,12 +249,7 @@ export function FindingDetailPage({ id }: { id: number }) {
             : <Link className="btn small" to={`/settings${qs({ tab: "risks", advisory: a.id, package: f.component_name, host: f.host_id ?? undefined })}`}>Accept risk…</Link>}
         </form>
         <h3>History</h3>
-        {data.history.length === 0 ? <p className="muted">No changes yet. First detected <When iso={f.first_detected_at} />.</p> : (
-          <div className="table-wrap"><table className="table compact"><tbody>{data.history.map((h) => (
-            <tr key={h.id}><td><When iso={h.at} /></td><td>{h.actor}</td>
-              <td>{h.detail?.from ? `${h.detail.from} → ${h.detail.to}` : h.action}</td><td>{h.detail?.note ?? h.detail?.reason}</td></tr>
-          ))}</tbody></table></div>
-        )}
+        <Timeline events={data.timeline} />
       </section>
     </>
   );

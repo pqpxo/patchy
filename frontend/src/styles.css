@@ -220,6 +220,13 @@ main#main:focus { outline: none; }
 .grid.fields { grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 0 12px; margin-bottom: 0; }
 .grid.dash { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); align-items: start; }
 .stack { display: grid; gap: var(--gap); }
+.timeline { list-style: none; margin: 0 0 0 5px; padding: 0 0 0 18px; border-left: 1px solid var(--rule-2); }
+.timeline li { position: relative; padding-bottom: 14px; }
+.timeline li:last-child { padding-bottom: 0; }
+.timeline li::before { content: ""; position: absolute; left: -25px; top: 6px; width: 9px; height: 9px; border-radius: 50%; background: var(--panel); border: 2px solid var(--rule-3); }
+.timeline li:last-child::before { background: var(--signal); border-color: var(--signal); }
+.timeline .badge { margin-left: 0; }
+.timeline p { margin: 2px 0 0; color: var(--ink-2); }
 .card { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--r2); padding: 16px 18px; margin-bottom: var(--gap); min-width: 0; }
 .grid > .card, .stack > .card { margin-bottom: 0; }
 .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; }

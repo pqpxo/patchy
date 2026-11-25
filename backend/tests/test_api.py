@@ -165,7 +165,7 @@ def test_finding_status_workflow(auth_client, db):
     ok = auth_client.post(f"/api/findings/{f.id}/status", json={"status": "false_positive", "note": "not used"})
     assert ok.json()["status"] == "false_positive" and ok.json()["status_changed_by"] == "admin"
     detail = auth_client.get(f"/api/findings/{f.id}").json()
-    assert detail["history"][0]["detail"]["to"] == "false_positive"
+    assert detail["timeline"][-1]["to"] == "false_positive" and detail["timeline"][-1]["actor"] == "admin"
     listed = auth_client.get("/api/findings", params={"status": ["false_positive"], "severity": ["critical"]}).json()
     assert listed["total"] == 1
     dash = auth_client.get("/api/dashboard").json()

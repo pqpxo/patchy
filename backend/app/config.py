@@ -16,6 +16,7 @@ class Settings:
         self.port = _int("PORT", 8080)
         self.cookie_secure = _bool("COOKIE_SECURE", True)
         self.session_hours = _int("SESSION_HOURS", 12)
+        self.session_idle_minutes = _int("SESSION_IDLE_MINUTES", 0)  # sign out after this long without activity; 0 = off
         # Public demo: everyone is the demo user and every change is refused. See app/demo.py.
         self.demo_mode = _bool("DEMO_MODE", False)
         # A page to send visitors to when a proxy or CDN in front of Patchy rate-limits them. http(s) only.

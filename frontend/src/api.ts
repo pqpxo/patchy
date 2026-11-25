@@ -156,6 +156,10 @@ export interface Feed {
   last_error: string | null; stale: boolean; detail: Record<string, any> | null;
 }
 
+export interface TimelineEvent {
+  at: string; actor: string; kind: "detected" | "status"; from: string | null; to: string; note: string | null;
+}
+
 export interface AuditEntry {
   id: number; at: string; actor: string; action: string; target_type: string | null; target_id: string | null;
   detail: Record<string, any> | null; ip: string | null;
