@@ -132,8 +132,8 @@ def test_connection_problems_are_explained(monkeypatch):
     assert "isn't Patchy" in agent_mod.ping(cfg, token="pa_x")[1]
     monkeypatch.setattr(agent_mod, "request", lambda *a, **k: (401, {"detail": "no"}))
     assert "rotated or revoked" in agent_mod.ping(cfg, token="pa_x")[1]
-    monkeypatch.setattr(agent_mod, "request", lambda *a, **k: (200, {"host": "gbv2", "agent_version": "1.7.0"}))
-    assert agent_mod.ping(cfg, token="pa_x")[:2] == (True, "Connected. Patchy knows this host as gbv2.")
+    monkeypatch.setattr(agent_mod, "request", lambda *a, **k: (200, {"host": "pi4", "agent_version": "1.7.0"}))
+    assert agent_mod.ping(cfg, token="pa_x")[:2] == (True, "Connected. Patchy knows this host as pi4.")
 
 
 def test_update_is_offered_only_for_a_newer_agent(menu, monkeypatch, capsys):

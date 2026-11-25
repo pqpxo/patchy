@@ -25,7 +25,7 @@ def test_sample_report_is_labelled_and_valid():
     Report.model_validate(rep)
 
 
-@pytest.mark.parametrize("root,ok", [("/opt/myapp", True), ("/home/swakes/docker/patchy", True), ("/", False),
+@pytest.mark.parametrize("root,ok", [("/opt/myapp", True), ("/home/pi/docker/patchy", True), ("/", False),
                                      ("/home", False), ("/etc", False), ("/proc/1", False), ("/root/x", False),
                                      ("relative", False), ("/opt/../etc", False), ("/srv/app/.ssh", False)])
 def test_directory_roots_are_restricted(root, ok):

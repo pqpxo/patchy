@@ -287,8 +287,8 @@ From agent 1.7, run `sudo patchy-agent` on the host for a menu:
 |  _/ / _ \   | |  | (__ | __ | \ V /
 |_|  /_/ \_\  |_|   \___||_||_|  |_|
 
-patchy-agent 1.7.1 on gbv2
-Server: https://patch.example.lan  ·  last report 2 h ago (OK)  ·  Run upgrade: allowed
+patchy-agent 1.7.1 on pi4
+Server: https://patchy.example.lan  ·  last report 2 h ago (OK)  ·  Run upgrade: allowed
 
  > 1. Status
    2. Send a report now
@@ -481,7 +481,7 @@ Known exploited: 2. Overdue: 95.
 This week: 12 new and still open, 40 fixed, typically after 3 days, 88% by their deadline.
 
 Most to fix:
-- swsuite: 1,900 open, 12 critical
+- homeserver: 1,900 open, 12 critical
 - pi4: 640 open, 4 critical
 ```
 
