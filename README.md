@@ -29,6 +29,7 @@
 - [Linux agent](#linux-agent)
 - [Vulnerability feeds](#vulnerability-feeds)
 - [Fixes](#fixes)
+- [Fix-by deadlines](#fix-by-deadlines)
 - [Accepted risk](#accepted-risk)
 - [Alerts](#alerts)
 - [Home Assistant](#home-assistant)
@@ -62,6 +63,7 @@
 - **Interface**: 18 colour schemes with day and night modes, 6 font styles, compact density, sortable tables with a column chooser, quick search (Ctrl+K). Version and changelog in Settings.
 - **Honest states**: confirmed, possible and version-unknown matches are kept separate. "Not checked" and "stale feed" are never shown as clean.
 - **Workflow**: open, acknowledged, resolved and false-positive states with notes. Findings auto-resolve when the version moves out of range and reopen if it moves back. Findings that Debian rates *unimportant* or Ubuntu rates *negligible* are set aside as **minor**, so they don't fill your counts. Accepted-risk rules set findings aside until a date you choose.
+- **Fix-by deadlines**: days per severity (7, 30, 90 and 180 by default), an overdue count and filter, a due date on every open finding, an optional overdue alert, and how quickly findings were fixed over the last 90 days.
 - **AI fix prompts**: a ready-made prompt and a downloadable report per host or repository, to get step-by-step patching help from ChatGPT or Claude.
 - **Alerts**: one message to a webhook (Home Assistant), ntfy, Pushover or email when an exploited or critical vulnerability is found, a host stops reporting, or software nears end of life.
 - **Audit log** of logins, asset changes, scans, agent enrolment and revocation, and status changes.
@@ -346,6 +348,27 @@ Names and advisory text in the report come from scans and public feeds, so both 
 
 <br>
 
+## Fix-by deadlines
+
+Each severity has a number of days a finding may stay open, counted from when Patchy first found it. Set them in **Settings > Fix-by deadlines**.
+
+| Severity | Default |
+|---|---|
+| Critical | 7 days |
+| High | 30 days |
+| Medium | 90 days |
+| Low | 180 days |
+
+- Known-exploited (CISA KEV) findings get the critical deadline whatever their severity, counted from when CISA listed them if that's later than when Patchy found them.
+- 0 turns a deadline off. Findings with no severity have no deadline.
+- Every open finding shows its due date. The Overview counts overdue findings, the Vulnerabilities page can filter to them, and there's a `sensor.patchy_overdue` for Home Assistant.
+- The Overview also shows how many findings were fixed in the last 90 days, the typical time to fix, and the share fixed by their deadline.
+
+> [!TIP]
+> Turn on the **Past the fix-by deadline** alert in **Settings > Alerts** to hear about each finding the day it becomes overdue. It's off by default, and findings already overdue when you turn it on aren't sent.
+
+<br>
+
 ## Accepted risk
 
 When you've decided to live with a finding for now, accept the risk instead of marking it a false positive. Use **Accept risk…** on a finding, or **Settings > Accepted risk**.
@@ -366,6 +389,7 @@ Patchy's worker checks every 5 minutes and sends **one** message listing what's 
 
 - **Known exploited**: a finding whose advisory is on the CISA KEV list (confirmed or possible match).
 - **Critical**: a confirmed finding rated critical.
+- **Past the fix-by deadline** (off by default): an open finding that has just become overdue.
 - **Host stops reporting**: an enrolled host with no report for 6 to 72 hours (24 by default).
 - **End of life**: an operating system, runtime or server within 90 days of end of life, or past it.
 
@@ -391,7 +415,7 @@ Patchy's counts can be Home Assistant sensors, so you can graph them, put them o
 The summary looks like this. New keys may be added; existing ones keep their meaning.
 
 ```json
-{"open": 12, "critical": 1, "high": 4, "medium": 6, "low": 1, "kev": 1, "network_exposed": 3,
+{"open": 12, "critical": 1, "high": 4, "medium": 6, "low": 1, "kev": 1, "overdue": 2, "network_exposed": 3,
  "eol": 2, "eol_soon": 1, "hosts": 4, "hosts_not_reporting": 0, "newer_images": 2,
  "feeds_stale": false, "alerts_paused": false, "version": "1.15.0", "generated_at": "2026-11-23T22:40:00+00:00"}
 ```

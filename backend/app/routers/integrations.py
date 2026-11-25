@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import __version__, alerts, registry, vulns
+from .. import __version__, alerts, deadlines, registry, vulns
 from ..db import get_db, utcnow
 from ..models import Advisory, Agent, ApiToken, Component, Finding, Host, User
 from ..security import audit, client_ip, current_session, limiter, require_user, sha256
@@ -66,6 +66,7 @@ def summary(db: Session = Depends(get_db), _: str = Depends(reader)) -> dict:
     return {
         "open": sum(sev.values()), **{k: sev.get(k, 0) for k in ("critical", "high", "medium", "low")},
         "kev": count(Advisory.kev.is_(True)),
+        "overdue": count(deadlines.overdue(deadlines.config(db))),
         "network_exposed": count(Component.exposure == "network"),
         "eol": eol("eol"), "eol_soon": eol("eol_soon"),
         "hosts": len(hosts), "hosts_not_reporting": silent,

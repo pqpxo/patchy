@@ -110,7 +110,7 @@ def test_pushover(db, monkeypatch):
 def test_alert_settings_api(auth_client, monkeypatch):
     s = auth_client.get("/api/settings").json()["alerts"]
     assert s["destinations"] == {"webhook": False, "ntfy": False, "pushover": False, "email": False}
-    assert s["events"] == {"kev": True, "critical": True, "eol": True, "silent_hours": 24, "paused": False}
+    assert s["events"] == {"kev": True, "critical": True, "overdue": False, "eol": True, "silent_hours": 24, "paused": False}
     assert auth_client.post("/api/alerts/test").status_code == 409
     assert auth_client.put("/api/settings/alerts", json={"silent_hours": 5}).status_code == 422
     assert auth_client.put("/api/settings/alerts", json={"eol": False, "silent_hours": 0}).json()["eol"] is False

@@ -4,8 +4,9 @@ import pathlib
 import re
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
+from .. import deadlines
 from .. import matching as m
 from ..models import Component, Finding, Advisory
 from ..schemas import AdvisoryOut, ComponentOut, FindingOut
@@ -84,4 +85,6 @@ def finding_out(f: Finding) -> FindingOut:
         "repository_id": c.repository_id, "repository_label": repo_label(c.repository),
         "image": (c.details or {}).get("image"), "exposure": c.exposure, "exposure_note": c.exposure_note,
         "advisory": AdvisoryOut.model_validate(f.advisory),
+        "due_at": deadlines.due_at(deadlines.config(object_session(f)), f.advisory.severity, f.advisory.kev,
+                                   f.advisory.kev_date_added, f.first_detected_at) if f.status in OPEN else None,
     })
