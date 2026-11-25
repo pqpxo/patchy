@@ -62,7 +62,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-VERSION = "1.7.0"
+VERSION = "1.7.1"
 DEFAULT_CONFIG = "/etc/patchy-agent/config.json"
 SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_OUTPUT = 64 * 1024
@@ -1493,9 +1493,16 @@ def _menu_server(cfg_path):
                     print(f"{path} isn't a file.")
             if change:
                 ok, msg, _ = ping({**cfg, **change})
+                if ok and change.get("ca_file"):
+                    # The menu runs as root; the service runs as patchy-agent with /home and /root hidden. Keep a
+                    # copy next to the token, readable by the service, so a test here means reports work too.
+                    copy = os.path.join(os.path.dirname(os.path.abspath(cfg_path)), "ca.pem")
+                    if os.path.abspath(change["ca_file"]) != copy:
+                        _write_private(copy, read_text(change["ca_file"], 1024 * 1024))
+                    change["ca_file"] = copy
                 if ok:
                     save_raw_config(cfg_path, {**raw, **change})
-                    print(f"{msg} Saved.")
+                    print(f"{msg} Saved." + (f" The certificate was copied to {change['ca_file']}." if change.get("ca_file") else ""))
                 else:
                     print(f"{msg} Nothing changed.")
         _pause()

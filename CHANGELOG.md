@@ -2,6 +2,23 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.25.0 - 2026-11-25
+
+### Added
+- **Change status** on Vulnerabilities: set every finding the current filters match to Open, Acknowledged, Resolved or False positive in one go, with a note. Up to 1,000 at a time. Findings an accepted-risk rule covers are skipped, and if the list changed since you loaded it, nothing is changed.
+- **Timeline** on each finding page: when it was found and every status change since, oldest first, by a person, by Patchy (auto-resolved, reopened, set aside as minor or not booted) or by an accepted-risk rule.
+- `SESSION_IDLE_MINUTES`: sign out after a set time without activity, on top of the `SESSION_HOURS` limit. Off by default.
+
+### Changed
+- Status changes Patchy makes itself, and ones made by accepted-risk rules, are now in the audit log (`finding.auto_status`). New findings aren't logged, so a first scan doesn't flood it.
+
+### Fixed
+- Agent 1.7.1: a CA file chosen in the agent menu is copied next to the config, so the agent service can read it. Before, a file under `/root` or a home directory worked in the menu's connection test but not for the service.
+
+### Upgrade notes
+- Database migration `0013` only adds a column. Nothing is changed or removed.
+- Status changes from before 1.25 that Patchy made itself weren't recorded, so older timelines may jump straight to the current status.
+
 ## 1.24.0 - 2026-11-25
 
 ### Added

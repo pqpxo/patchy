@@ -28,6 +28,7 @@ from .agent_ingest import Report, ingest
 from .config import settings
 from .db import Base, SessionLocal, utcnow
 from .inventory import sync_components
+from .routers.common import bundled_agent_version
 from .models import (Advisory, AdvisoryPackage, Agent, AppSetting, Component, Finding, FeedStatus, Host, OsvQuery,
                      Repository, RiskRule, ScanRun, UpgradeRun, User, UserSession, UTCDateTime)
 from .security import hash_password, sha256
@@ -138,11 +139,11 @@ def _hosts(phase: int) -> list[dict]:
             upd("docker-ce", "5:27.3.1-1~ubuntu.24.04~noble", "5:27.5.1-1~ubuntu.24.04~noble"),
             upd("containerd.io", "1.7.22-1", "1.7.25-1")]},
     } if new else {}
-    out = []
+    out, latest = [], bundled_agent_version() or "1.7.1"  # every demo host but one runs the current agent
     for name, ip, kernel, arch, os_info, pkgs, listening, running, ctrs, images in reports:
-        out.append({"name": name, "version": "1.3.0" if name == "old-wiki" else "1.7.0", "report": {
+        out.append({"name": name, "version": "1.3.0" if name == "old-wiki" else latest, "report": {
             "schema": 1, "report_id": str(uuid.UUID(int=random.Random(f"{name}{phase}").getrandbits(128))),
-            "agent_version": "1.3.0" if name == "old-wiki" else "1.7.0", "generated_at": utcnow().isoformat(),
+            "agent_version": "1.3.0" if name == "old-wiki" else latest, "generated_at": utcnow().isoformat(),
             "updates": updates.get(name),
             "host": {"hostname": name, "ips": [ip], "kernel": kernel, "arch": arch, "os": os_info},
             "packages": [{**p, "arch": "arm64" if arch == "aarch64" else "amd64"} for p in pkgs],

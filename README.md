@@ -67,7 +67,7 @@
 - **Per-source schedules**: switch each source on or off and choose how often it refreshes, from Settings.
 - **Interface**: 18 colour schemes with day and night modes, 6 font styles, compact density, sortable tables with a column chooser, quick search (Ctrl+K). Version and changelog in Settings.
 - **Honest states**: confirmed, possible and version-unknown matches are kept separate. "Not checked" and "stale feed" are never shown as clean.
-- **Workflow**: open, acknowledged, resolved and false-positive states with notes. Findings auto-resolve when the version moves out of range and reopen if it moves back. Findings that Debian rates *unimportant* or Ubuntu rates *negligible* are set aside as **minor**, so they don't fill your counts. Accepted-risk rules set findings aside until a date you choose.
+- **Workflow**: open, acknowledged, resolved and false-positive states with notes. **Change status** on Vulnerabilities sets every finding the filters match at once (up to 1,000). Each finding page shows a timeline of when it was found and every status change since, by a person or by Patchy. Findings auto-resolve when the version moves out of range and reopen if it moves back. Findings that Debian rates *unimportant* or Ubuntu rates *negligible* are set aside as **minor**, so they don't fill your counts. Accepted-risk rules set findings aside until a date you choose.
 - **Fix-by deadlines**: days per severity (7, 30, 90 and 180 by default), an overdue count and filter, a due date on every open finding, an optional overdue alert, and how quickly findings were fixed over the last 90 days.
 - **AI fix prompts**: a ready-made prompt and a downloadable report per host or repository, to get step-by-step patching help from ChatGPT or Claude.
 - **Alerts**: one message to a webhook (Home Assistant), ntfy, Pushover or email when an exploited or critical vulnerability is found, a host stops reporting, or software nears end of life. An optional weekly digest sums up the week.
@@ -122,6 +122,7 @@ All settings are environment variables in `.env`. See [.env.example](.env.exampl
 | `POSTGRES_PASSWORD` | none | Required. Alphanumeric (it goes into a URL) |
 | `COOKIE_SECURE` | `true` | `false` only for plain-HTTP LAN access |
 | `SESSION_HOURS` | `12` | Session lifetime |
+| `SESSION_IDLE_MINUTES` | `0` | New in 1.25. Sign out after this many minutes without activity. `0` = off (sessions last `SESSION_HOURS`) |
 | `BLOCKED_URL` | (empty) | A page to send visitors to when a proxy or CDN in front of Patchy rate-limits them. Patchy's own limits still show their usual message |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Reverse proxy IP(s) trusted for `X-Forwarded-For` |
 | `GITHUB_TOKEN` | empty | Private repos and 5000 requests/h. Never sent to the browser |
@@ -286,7 +287,7 @@ From agent 1.7, run `sudo patchy-agent` on the host for a menu:
 |  _/ / _ \   | |  | (__ | __ | \ V /
 |_|  /_/ \_\  |_|   \___||_||_|  |_|
 
-patchy-agent 1.7.0 on gbv2
+patchy-agent 1.7.1 on gbv2
 Server: https://patch.example.lan  ·  last report 2 h ago (OK)  ·  Run upgrade: allowed
 
  > 1. Status
@@ -306,7 +307,7 @@ Up/Down to move, Enter to choose, q or Esc to go back
 - **Send a report now**, or **preview** one: collected by the `patchy-agent` account, as the service does, and nothing is sent.
 - **What it collects**: switch each part on or off, and add or remove app directories (the usual limits apply). Switching Docker containers on asks first, because the docker group is root-equivalent.
 - **Run upgrade**: allow or stop it, and read the last upgrade's output.
-- **Server and token**: test the connection (with a plain explanation of DNS, certificate and token problems), replace the token after a Rotate, change the server address, or set a CA file. A new token or address is saved only once Patchy accepts it.
+- **Server and token**: test the connection (with a plain explanation of DNS, certificate and token problems), replace the token after a Rotate, change the server address, or set a CA file (copied to `/etc/patchy-agent/ca.pem`, where the service can read it). A new token, address or CA file is saved only once Patchy accepts it.
 - **Logs**, **Update the agent** (from the version this Patchy bundles) and **Remove the agent**.
 
 > [!NOTE]

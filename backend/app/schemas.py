@@ -112,6 +112,15 @@ class FindingStatusIn(In):
     note: Annotated[str | None, StringConstraints(max_length=2000)] = None
 
 
+BULK_MAX = 1000
+
+
+class BulkStatusIn(In):
+    status: Literal["open", "acknowledged", "resolved", "false_positive"]  # never one Patchy sets itself
+    note: Annotated[str | None, StringConstraints(max_length=2000)] = None
+    expected: int = Field(ge=1, le=BULK_MAX)  # how many the person saw: refuse if the filter now matches more or fewer
+
+
 class PathOut(Out):
     path: str
     kind: str

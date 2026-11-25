@@ -18,7 +18,7 @@ from ..agent_ingest import Report, ingest
 from ..config import settings
 from ..db import get_db, utcnow
 from ..models import Advisory, AppSetting, AuditLog, Component, FeedStatus, Finding, Host, Repository, ScanRun, User
-from ..schemas import (AUTO_STATUSES, AlertDestinationsIn, AlertsIn, AnyFindingStatus, DeadlinesIn, AuditOut, FeedOut, FindingOut, FindingStatusIn, NewsFeedsIn, Page,
+from ..schemas import (AUTO_STATUSES, BULK_MAX, AlertDestinationsIn, AlertsIn, AnyFindingStatus, BulkStatusIn, DeadlinesIn, AuditOut, FeedOut, FindingOut, FindingStatusIn, NewsFeedsIn, Page,
                        RefreshIn, ScanRunOut, SourceIn)
 from ..security import audit, authenticate_agent, client_ip, limiter, require_user
 from ..worker import enqueue
@@ -126,15 +126,61 @@ def get_sbom(request: Request, db: Session = Depends(get_db), user: User = Depen
         "Content-Disposition": f'attachment; filename="patchy-sbom-{name}.cdx.json"'})
 
 
+def timeline(db: Session, f: Finding) -> list[dict]:
+    """A finding's history, oldest first: when it was found, then each status change, by a person or by Patchy."""
+    events = [{"at": f.first_detected_at, "actor": "system", "kind": "detected", "from": None, "to": "open", "note": None}]
+    for h in db.scalars(select(AuditLog).where(AuditLog.target_type == "finding", AuditLog.target_id == str(f.id))
+                        .order_by(AuditLog.id)):
+        d = h.detail or {}
+        if h.action == "finding.auto_resolved":  # recorded before 1.25 without from/to
+            d = {"to": "resolved", **d}
+        events.append({"at": h.at, "actor": h.actor, "kind": "status", "from": d.get("from"), "to": d.get("to"),
+                       "note": d.get("note") or d.get("reason")})
+    if events[-1]["to"] != f.status:  # set straight away when found, or changed before changes were recorded
+        events.append({"at": f.status_changed_at or f.first_detected_at, "actor": f.status_changed_by or "system",
+                       "kind": "status", "from": events[-1]["to"], "to": f.status, "note": f.status_note})
+    return events
+
+
 @router.get("/findings/{finding_id}")
 def get_finding(finding_id: int, db: Session = Depends(get_db), _: User = Depends(require_user)) -> dict:
     f = db.get(Finding, finding_id)
     if not f:
         raise HTTPException(404, "Not found.")
-    history = db.scalars(select(AuditLog).where(AuditLog.target_type == "finding",
-                                                AuditLog.target_id == str(f.id)).order_by(AuditLog.id.desc())).all()
-    return {"finding": finding_out(f), "history": [AuditOut.model_validate(h) for h in history],
+    return {"finding": finding_out(f), "timeline": timeline(db, f),
             "feed_stale": vulns.feed_is_stale(db), "dependabot": dependabot.for_finding(f)}
+
+
+def _change_status(db: Session, f: Finding, status: str, note: str | None, user: str, ip: str, bulk=False) -> None:
+    old = f.status
+    f.status, f.status_note = status, note
+    if status not in AUTO_STATUSES:  # a note on an automatic status leaves Patchy in charge of it
+        f.status_changed_by = user
+    if old != status and (old in OPEN or status in OPEN):
+        # A note edit, or moving between closed statuses, keeps the date it was closed (the trend counts from it).
+        f.status_changed_at = utcnow()
+    audit(db, user, "finding.status", "finding", f.id,
+          {"from": old, "to": status, "note": note, "advisory": f.advisory_id, **({"bulk": True} if bulk else {})}, ip)
+
+
+@router.post("/findings/bulk-status")
+def bulk_finding_status(body: BulkStatusIn, request: Request, db: Session = Depends(get_db),
+                        user: User = Depends(require_user), query: Select = Depends(finding_query)) -> dict:
+    """Set every finding the list's filters match (at most 1,000). Findings an accepted-risk rule covers are skipped."""
+    found = db.scalars(query.limit(BULK_MAX + 1)).unique().all()
+    if len(found) > BULK_MAX:
+        raise HTTPException(422, f"That's more than {BULK_MAX:,} findings. Narrow the filters first.")
+    if len(found) != body.expected:
+        raise HTTPException(409, f"The list has changed: {len(found)} findings match now. Reload and try again.")
+    changed = skipped = 0
+    for f in found:
+        if f.status == "risk_accepted" or (f.status == body.status and body.note is None):
+            skipped += 1
+            continue
+        _change_status(db, f, body.status, body.note, user.username, client_ip(request), bulk=True)
+        changed += 1
+    db.commit()
+    return {"changed": changed, "skipped": skipped}
 
 
 @router.post("/findings/{finding_id}/status", response_model=FindingOut)
@@ -143,19 +189,11 @@ def set_finding_status(finding_id: int, body: FindingStatusIn, request: Request,
     f = db.get(Finding, finding_id)
     if not f:
         raise HTTPException(404, "Not found.")
-    old = f.status
-    if old == "risk_accepted" and body.status != old:
+    if f.status == "risk_accepted" and body.status != f.status:
         raise HTTPException(409, "An accepted-risk rule covers this finding. Revoke the rule to reopen it.")
-    if body.status in AUTO_STATUSES and body.status != old:
+    if body.status in AUTO_STATUSES and body.status != f.status:
         raise HTTPException(422, "Patchy sets this status itself. Choose Open, Acknowledged, Resolved or False positive.")
-    f.status, f.status_note = body.status, body.note
-    if body.status not in AUTO_STATUSES:  # a note on an automatic status leaves Patchy in charge of it
-        f.status_changed_by = user.username
-    if old != body.status and (old in OPEN or body.status in OPEN):
-        # A note edit, or moving between closed statuses, keeps the date it was closed (the trend counts from it).
-        f.status_changed_at = utcnow()
-    audit(db, user.username, "finding.status", "finding", f.id,
-          {"from": old, "to": body.status, "note": body.note, "advisory": f.advisory_id}, client_ip(request))
+    _change_status(db, f, body.status, body.note, user.username, client_ip(request))
     db.commit()
     return finding_out(f)
 

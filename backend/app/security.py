@@ -100,8 +100,17 @@ def current_session(request: Request, db: Session = Depends(get_db)) -> UserSess
     if not token:
         raise HTTPException(401, "Not signed in.")
     s = db.scalar(select(UserSession).where(UserSession.token_hash == sha256(token)))
-    if not s or s.expires_at < utcnow():
+    now = utcnow()
+    if not s or s.expires_at < now:
         raise HTTPException(401, "Session expired. Sign in again.")
+    idle = settings.session_idle_minutes
+    if idle and (s.last_seen_at or s.created_at) < now - timedelta(minutes=idle):
+        db.delete(s)
+        db.commit()
+        raise HTTPException(401, f"Signed out after {idle} minutes without activity. Sign in again.")
+    if idle and (s.last_seen_at is None or s.last_seen_at < now - timedelta(minutes=1)):
+        s.last_seen_at = now
+        db.commit()
     if request.method not in ("GET", "HEAD", "OPTIONS"):
         sent = request.headers.get("x-csrf-token", "")
         if not hmac.compare_digest(sent, s.csrf_token):
