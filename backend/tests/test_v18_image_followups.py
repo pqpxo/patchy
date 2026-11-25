@@ -21,10 +21,10 @@ def test_a_replaced_image_is_queued_once(auth_client, client, host, db):
     assert send(_with_image(NEW, scanned=False))  # pulled: the agent no longer has a scan of the image in use
     host_out = auth_client.get(f"/api/hosts/{host.id}").json()["host"]
     assert host_out["image_scan_requests"] == [NEW] and host_out["image_scans"]["nginx:1.27"]["requested"] == NEW
-    assert client.get("/api/agent/poll", headers=h).json() == {"report": True, "scan_images": [NEW]}
+    assert client.get("/api/agent/poll", headers=h).json() == {"report": True, "scan_images": [NEW], "upgrade": None}
 
     assert send(_with_image(NEW, scanned=False, image_requests_done=[NEW]))  # answered but the scan failed
-    assert client.get("/api/agent/poll", headers=h).json() == {"report": False, "scan_images": []}  # no loop
+    assert client.get("/api/agent/poll", headers=h).json() == {"report": False, "scan_images": [], "upgrade": None}  # no loop
 
     assert send(_with_image(NEW))
     now = auth_client.get(f"/api/hosts/{host.id}").json()["host"]["image_scans"]["nginx:1.27"]
