@@ -15,10 +15,11 @@ Notes = Annotated[str | None, StringConstraints(max_length=5000)]
 ComponentType = Literal["language", "library", "web_server", "database", "os_package", "container_image",
                         "application", "service", "other"]
 Ecosystem = Literal["PyPI", "npm", "Go", "crates.io", "Packagist", "Maven", "RubyGems", "NuGet"]
-AnyFindingStatus = Literal["open", "acknowledged", "resolved", "false_positive", "minor", "risk_accepted"]
-# Set only by Patchy, from the distro's rating and by accepted-risk rules. A person can keep one (to edit the
-# note) but not choose it.
-AUTO_STATUSES = ("minor", "risk_accepted")
+AnyFindingStatus = Literal["open", "acknowledged", "resolved", "false_positive", "minor", "risk_accepted",
+                          "not_booted"]
+# Set only by Patchy: from the distro's rating, by accepted-risk rules, and for kernels that aren't booted. A
+# person can keep one (to edit the note) but not choose it.
+AUTO_STATUSES = ("minor", "risk_accepted", "not_booted")
 
 
 class In(BaseModel):
@@ -146,6 +147,7 @@ class ComponentOut(Out):
     cpe: str | None = None
     eol_state: str | None = None
     eol: dict | None = None
+    in_use: bool | None = None
     created_at: datetime
     updated_at: datetime
     check_state: str = "unknown"
@@ -206,6 +208,7 @@ class FindingOut(Out):
     remediation: str
     currently_matching: bool
     due_at: datetime | None = None  # fix-by deadline, while the finding is open
+    in_use: bool | None = None  # whether a running program comes from the component
     status: str
     status_note: str | None
     vendor_priority: str | None = None

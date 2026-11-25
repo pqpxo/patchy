@@ -49,7 +49,7 @@ const findingCols: Col<Finding>[] = [
     {f.host_id ? <Link to={`/hosts/${f.host_id}`}>{f.host_name}</Link>
       : f.repository_id ? <Link to={`/repositories/${f.repository_id}`}>{f.repository_label}</Link> : <span className="muted">-</span>}
   </> },
-  { id: "exposure", label: "Exposure", sort: "exposure", first: "desc", cell: (f) => <Reach e={f.exposure} note={f.exposure_note} /> },
+  { id: "exposure", label: "Exposure", sort: "exposure", first: "desc", cell: (f) => <Reach e={f.exposure} note={f.exposure_note} inUse={f.in_use} /> },
   { id: "epss", label: "EPSS", sort: "epss", first: "desc", cell: (f) => <Epss v={f.advisory.epss} p={f.advisory.epss_percentile} /> },
   { id: "cvss", label: "CVSS", sort: "cvss", first: "desc", num: true, hidden: true, cell: (f) => f.advisory.cvss_score ?? <span className="muted">-</span> },
   { id: "match", label: "Match", sort: "match", cell: (f) => <Match s={f.match_status} /> },

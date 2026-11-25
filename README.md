@@ -53,7 +53,7 @@
 - **End of life**: support dates from endoflife.date for runtimes, frameworks, servers and host operating systems.
 - **Security news**: the 5 newest posts from security news feeds (RSS or Atom) on the Overview. The Hacker News by default; choose your own under **Settings > Sources and schedule** (or `NEWS_FEEDS`).
 - **Fixes**: open findings grouped into the fewest upgrade steps per host, repository and manifest, with a copy-paste command where it's safe to give one.
-- **Exposure ranking**: findings in software that listens on the network, or in a container that publishes a port, rank above ones nothing can reach.
+- **Exposure ranking**: findings in software that listens on the network, or in a container that publishes a port, rank above ones nothing can reach. Findings in packages no running program comes from rank lower, and ones in installed kernels that aren't booted are set aside.
 - **Trend**: open findings over the last 90 days on the Overview, with the change over 30 days. Hover for each day's critical and high counts.
 - **Export**: findings as CSV (with the current filters) from Vulnerabilities or a Findings tab, and a CycloneDX 1.5 SBOM with open vulnerabilities for a host (on its Reports tab), a container image or a repository. Every export is audit-logged.
 - **Newer images** (optional, off by default): flags containers whose tag now points at a newer build on Docker Hub, GHCR, Quay or another public registry.
@@ -224,6 +224,7 @@ The installer prompts for the token (input hidden, kept out of shell history), w
 | Software added to the base OS | apt's manual marks, the installer's package list or package priority, `snap list`, `flatpak list` | `collect.apps` |
 | Listening TCP/UDP sockets | `/proc/net/*`; process names only where readable | `collect.listening_ports` |
 | Running services | `systemctl list-units --state=running` | `collect.services` |
+| Which packages running programs come from | `/proc/<pid>/cmdline` and `comm` (readable by any user), the shared libraries those programs need (read from their ELF headers, never run) and the package database. Container processes are skipped | `collect.in_use` |
 | Versions of common software | fixed allowlist (`nginx -v`, `python3 --version`, `openssl version`...) | `collect.version_probes` |
 | Docker containers: name, image, state, ports, mount locations | Docker API socket (needs the docker group, see below). Never env or labels | `collect.docker_images` (off) |
 | Packages inside container images | Syft, if installed (see below), reading local images through the Docker socket | `collect.image_packages` (with containers) |
@@ -329,7 +330,16 @@ On agent hosts, each component gets an exposure from the latest report. It is sh
 | **Local** | The same, but only on loopback (`127.0.0.1`, `::1`) |
 | None | Nothing is seen listening as it, eg a shared library. It still ranks by KEV, EPSS and severity |
 
-The **Priority** sort (and so **Fix first** on the Overview) goes: known exploited, then exposure, then EPSS, then severity. Exposure is a strong hint, not proof: a library such as OpenSSL is loaded by a listening process without being named after it, and a firewall or reverse proxy may block a port that is open on the host. Repositories and manual assets have no exposure.
+The **Priority** sort (and so **Fix first** on the Overview) goes: known exploited, then running, then exposure, then EPSS, then severity. Exposure is a strong hint, not proof: a library such as OpenSSL is loaded by a listening process without being named after it, and a firewall or reverse proxy may block a port that is open on the host. Repositories and manual assets have no exposure.
+
+### Running or not
+
+Agent 1.5 and later also report which packages the programs running on the host come from, plus the shared libraries those programs load at start. Findings in a package nothing running comes from get a **Not running** badge and rank lower, but stay open and counted: the software can still be started, and Patchy can't see plugins or modules loaded later, or tools run now and then. The *Running* filter on Vulnerabilities lists either side.
+
+Kernels are worked out by the server from `uname -r`, so this part needs no agent update. Findings in an installed kernel that isn't the booted one get the automatic status **Not booted**: they leave the open counts, alerts and fix plans, reopen by themselves if that kernel is booted, and resolve when it's removed (`sudo apt autoremove` on Debian and Ubuntu). Setting one to Open by hand keeps it open.
+
+> [!NOTE]
+> If the agent can't see other users' processes (`/proc` mounted with `hidepid`), Patchy treats everything as unknown rather than not running, and ranks as before.
 
 ### Get help from an AI assistant
 

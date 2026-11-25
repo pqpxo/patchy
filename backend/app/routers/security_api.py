@@ -32,6 +32,7 @@ CHANGELOG = pathlib.Path(__file__).resolve().parents[3] / "CHANGELOG.md"
 
 SEV_RANK = case({"critical": 5, "high": 4, "medium": 3, "low": 2, "none": 1}, value=Advisory.severity, else_=0)
 EXPOSURE_RANK = case({"network": 2, "local": 1}, value=Component.exposure, else_=0)
+IN_USE_RANK = case((Component.in_use.is_(True), 2), (Component.in_use.is_(False), 0), else_=1)  # unknown in between
 
 
 # ---------------- findings ----------------
@@ -41,7 +42,7 @@ def finding_query(severity: list[Literal["critical", "high", "medium", "low", "n
                   match_status: list[Literal["confirmed", "possible", "unknown_version"]] = Query(None),
                   kev: bool | None = None, host_id: int | None = None, repository_id: int | None = None,
                   component_id: int | None = None, q: str | None = Query(None, max_length=200),
-                  include_stale_matches: bool = False, overdue: bool = False,
+                  include_stale_matches: bool = False, overdue: bool = False, in_use: bool | None = None,
                   sort: Literal["priority", "severity", "epss", "cvss", "published", "component", "location",
                                 "match", "status", "detected", "exposure"] = "severity",
                   order: Literal["asc", "desc"] = "desc", db: Session = Depends(get_db)) -> Select:
@@ -56,6 +57,8 @@ def finding_query(severity: list[Literal["critical", "high", "medium", "low", "n
         query = query.where(Finding.match_status.in_(match_status))
     if kev is not None:
         query = query.where(Advisory.kev.is_(kev))
+    if in_use is not None:
+        query = query.where(Component.in_use.is_(in_use))
     if overdue:  # past the fix-by deadline and still open
         query = query.where(Finding.status.in_(OPEN), deadlines.overdue(deadlines.config(db)))
     for col, val in ((Component.host_id, host_id), (Component.repository_id, repository_id),
@@ -67,8 +70,9 @@ def finding_query(severity: list[Literal["critical", "high", "medium", "low", "n
     if not include_stale_matches:
         query = query.where(Finding.currently_matching.is_(True) | Finding.status.in_(["resolved", "false_positive"]))
     match_rank = case({"confirmed": 0, "possible": 1}, value=Finding.match_status, else_=2)
-    if sort == "priority":  # what to fix first: known exploited, reachable over the network, likely exploited, severe
-        keys = [Advisory.kev.desc(), EXPOSURE_RANK.desc(), func.coalesce(Advisory.epss, -1).desc(), SEV_RANK.desc()]
+    if sort == "priority":  # fix first: known exploited, running, reachable over the network, likely exploited, severe
+        keys = [Advisory.kev.desc(), IN_USE_RANK.desc(), EXPOSURE_RANK.desc(), func.coalesce(Advisory.epss, -1).desc(),
+                SEV_RANK.desc()]
         if order == "asc":
             keys = [k.element.asc() for k in keys]
         query = query.order_by(*keys, match_rank, Finding.id)
@@ -238,6 +242,8 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(require_user)) ->
         "overdue": db.scalar(select(func.count()).select_from(Finding).join(Advisory).where(
             *active, Finding.match_status != "unknown_version", deadlines.overdue(deadlines.config(db)))),
         "time_to_fix": deadlines.time_to_fix(db),
+        "not_running": db.scalar(select(func.count()).select_from(Finding).join(Component).where(
+            *active, Finding.match_status != "unknown_version", Component.in_use.is_(False))),
         "top_assets": [{"id": r[0], "name": r[1], "version": r[2], "location": r[3] or (f"{r[4]}/{r[5]}" if r[4] else None),
                         "open": r[6], "max_severity": rank_name.get(r[7], "unknown")} for r in top],
         "coverage": coverage, "feeds": feeds_status(db), "feed_stale": vulns.feed_is_stale(db),
