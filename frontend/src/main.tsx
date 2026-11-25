@@ -224,7 +224,8 @@ function App() {
         {demo && <div className="alert info demo-bar" role="note">
           <p><b>Demo.</b> The hosts and repositories are made up; the vulnerability data is real and public, from {new Date(demo).toLocaleDateString("en-GB", { dateStyle: "medium" })}.
             Changes are turned off. Data: <a href="https://osv.dev" target="_blank" rel="noopener noreferrer">OSV.dev</a> (CC-BY 4.0),
-            FIRST EPSS, CISA KEV and endoflife.date. <a href="https://github.com/pqpxo/patchy" target="_blank" rel="noopener noreferrer">Get Patchy on GitHub</a>.</p>
+            FIRST EPSS, CISA KEV and endoflife.date.<br />
+            <a href="https://github.com/pqpxo/patchy" target="_blank" rel="noopener noreferrer">Get Patchy on GitHub</a></p>
         </div>}
         {route(path)}
       </main>
