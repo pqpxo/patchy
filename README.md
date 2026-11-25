@@ -65,7 +65,7 @@
 - **Workflow**: open, acknowledged, resolved and false-positive states with notes. Findings auto-resolve when the version moves out of range and reopen if it moves back. Findings that Debian rates *unimportant* or Ubuntu rates *negligible* are set aside as **minor**, so they don't fill your counts. Accepted-risk rules set findings aside until a date you choose.
 - **Fix-by deadlines**: days per severity (7, 30, 90 and 180 by default), an overdue count and filter, a due date on every open finding, an optional overdue alert, and how quickly findings were fixed over the last 90 days.
 - **AI fix prompts**: a ready-made prompt and a downloadable report per host or repository, to get step-by-step patching help from ChatGPT or Claude.
-- **Alerts**: one message to a webhook (Home Assistant), ntfy, Pushover or email when an exploited or critical vulnerability is found, a host stops reporting, or software nears end of life.
+- **Alerts**: one message to a webhook (Home Assistant), ntfy, Pushover or email when an exploited or critical vulnerability is found, a host stops reporting, or software nears end of life. An optional weekly digest sums up the week.
 - **Audit log** of logins, asset changes, scans, agent enrolment and revocation, and status changes.
 
 | Fixes | Vulnerabilities |
@@ -406,6 +406,23 @@ Patchy's worker checks every 5 minutes and sends **one** message listing what's 
 Each thing alerts once. The first check after an upgrade only records what is already there, so you aren't sent the backlog. If every destination fails, the same items are tried again at the next check.
 
 Add destinations in **Settings > Alerts** (webhook, ntfy, Pushover or email), choose which events alert, then press **Send test**. Every destination that's set up gets every alert. To stop all alerts for a while, use the bell at the bottom of the sidebar; whatever turns up while they are paused is not sent later.
+
+### Weekly digest
+
+Turn on **Settings > Alerts > Weekly digest** for one message every Monday at 08:00 UTC, to the same destinations, even when nothing changed. It's off by default.
+
+```text
+Patchy weekly: 3,412 open, 12 new, 40 fixed
+Open: 3,412 (21 critical, 610 high, 2,300 medium, 481 low)
+Known exploited: 2. Overdue: 95.
+This week: 12 new and still open, 40 fixed, typically after 3 days, 88% by their deadline.
+
+Most to fix:
+- homeserver: 1,900 open, 12 critical
+- pi4: 640 open, 4 critical
+```
+
+**Send now** sends this week's digest straight away, so you can see how it looks. It counts as this week's, so Monday's isn't sent twice. If it's turned on after Monday's time, the week's digest goes out within 5 minutes. For the webhook, the hosts are in `items`, each with a link.
 
 Destinations can also be set in `.env` (see the table under [Configuration](#configuration)). A variable set in `.env` takes priority and is locked in the UI, which suits anyone who keeps all secrets out of the database.
 

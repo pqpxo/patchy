@@ -398,6 +398,18 @@ def test_alert(request: Request, db: Session = Depends(get_db), user: User = Dep
     return {"results": results}
 
 
+@router.post("/alerts/digest")
+def send_digest_now(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)) -> dict:
+    """Send the weekly digest now, to see what it looks like. It counts as this week's."""
+    limiter.check(f"alert-test:{user.id}", 5, 300)
+    if not any(alerts.destinations(alerts.values(db)).values()):
+        raise HTTPException(409, "No alert destination is set. Add one above or in .env.")
+    results = alerts.send_digest(db)
+    audit(db, user.username, "alerts.digest", "settings", "alerts", results, client_ip(request))
+    db.commit()
+    return {"results": results}
+
+
 @router.get("/version")
 def version(_: User = Depends(require_user)) -> dict:
     return {"version": __version__, "agent_version": bundled_agent_version(),
