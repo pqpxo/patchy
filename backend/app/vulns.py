@@ -378,15 +378,22 @@ def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
                                                              Advisory.withdrawn.is_(None))):
                     matched.setdefault(adv.id, (adv, cpe.match(c, adv, version, product)))
             c.vuln_checked_at = checked
+
+        def auto(f, new, to, note):  # a change Patchy makes itself; brand-new findings aren't logged (no flood)
+            if not new:
+                audit(db, "system", "finding.auto_status", "finding", f.id, {"from": f.status, "to": to, "note": note})
+            f.status, f.status_note, f.status_changed_at = to, note, now
+
         for adv_id, (adv, res) in matched.items():
             f = existing.get(adv_id)
+            new = f is None
             if not f:
                 f = Finding(component_id=c.id, advisory_id=adv_id, first_detected_at=now, status="open",
                             status_changed_by="system", status_changed_at=now)
                 db.add(f)
                 stats["new"] += 1
             elif f.status == "resolved" and f.status_changed_by == "system":
-                f.status, f.status_note, f.status_changed_at = "open", "Reopened automatically: matches again.", now
+                auto(f, new, "open", "Reopened automatically: matches again.")
                 stats["reopened"] += 1
             f.match_status, f.evidence = res.status, res.evidence
             f.affected_ranges, f.fixed_versions = res.affected_ranges, res.fixed_versions
@@ -396,22 +403,20 @@ def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
             minor = f.vendor_priority in m.MINOR and not adv.kev  # known exploited is never set aside
             if minor and f.status == "open" and f.status_changed_by == "system":
                 distro = m.ecosystem_base(ident[0])
-                f.status, f.status_changed_at = "minor", now
-                f.status_note = (f"Set aside automatically: {distro} rates this {f.vendor_priority}, so it doesn't "
-                                 "plan a security update. Set it to Open to track it anyway.")
+                auto(f, new, "minor", f"Set aside automatically: {distro} rates this {f.vendor_priority}, so it doesn't "
+                                      "plan a security update. Set it to Open to track it anyway.")
                 stats["minor"] += 1
             elif not minor and f.status == "minor":
-                f.status, f.status_changed_at, f.status_changed_by = "open", now, "system"
-                f.status_note = "Reopened automatically: the distro raised its rating, or it is now known exploited."
+                f.status_changed_by = "system"
+                auto(f, new, "open", "Reopened automatically: the distro raised its rating, or it is now known exploited.")
                 stats["reopened"] += 1
             if old_kernel and f.status == "open" and f.status_changed_by == "system":
-                f.status, f.status_changed_at = "not_booted", now
-                f.status_note = ("Set aside automatically: this kernel is installed but isn't the one running, so it "
-                                 "matters only if the host boots it. Remove old kernels to clear it.")
+                auto(f, new, "not_booted", "Set aside automatically: this kernel is installed but isn't the one running, "
+                                           "so it matters only if the host boots it. Remove old kernels to clear it.")
                 stats["not_booted"] += 1
             elif not old_kernel and f.status == "not_booted":
-                f.status, f.status_changed_at, f.status_changed_by = "open", now, "system"
-                f.status_note = "Reopened automatically: this kernel is now running, or Patchy can no longer tell."
+                f.status_changed_by = "system"
+                auto(f, new, "open", "Reopened automatically: this kernel is now running, or Patchy can no longer tell.")
                 stats["reopened"] += 1
         for adv_id, f in existing.items():
             if adv_id in matched:
@@ -420,9 +425,9 @@ def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
             if f.status in ("open", "acknowledged", "minor", "risk_accepted", "not_booted"):
                 why = "component no longer present in latest scan" if c.missing_since else \
                     f"version {c.version or 'unknown'} no longer matches the advisory"
+                audit(db, "system", "finding.auto_resolved", "finding", f.id, {"reason": why, "from": f.status, "to": "resolved"})
                 f.status, f.status_note = "resolved", f"Resolved automatically: {why}."
                 f.status_changed_at, f.status_changed_by = now, "system"
-                audit(db, "system", "finding.auto_resolved", "finding", f.id, {"reason": why})
                 stats["auto_resolved"] += 1
     db.flush()
     stats.update(risk.apply(db))

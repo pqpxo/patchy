@@ -51,5 +51,6 @@ def test_accepted_risk_rules(auth_client, db, host):
     assert risk.apply(db)["risk_released"] == 1
     db.commit()
     assert {f.status for f in db.query(Finding)} == {"open"}
-    actions = [a["action"] for a in auth_client.get("/api/audit").json()["items"][:4]]
-    assert actions == ["risk.revoke", "finding.status", "risk.accept", "risk.accept"]
+    actions = [a["action"] for a in auth_client.get("/api/audit").json()["items"]]
+    assert actions.count("finding.auto_status") == 4  # two findings accepted, then both released (1.25)
+    assert [a for a in actions if a != "finding.auto_status"][:4] == ["risk.revoke", "finding.status", "risk.accept", "risk.accept"]

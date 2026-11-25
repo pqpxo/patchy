@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from .db import utcnow
 from .models import Advisory, Component, Finding, RiskRule
+from .security import audit
 
 OPEN = ("open", "acknowledged")
 
@@ -31,13 +32,15 @@ def apply(db: Session) -> dict:
     for f in db.scalars(select(Finding).where(Finding.status == "risk_accepted")):
         rid = (f.status_changed_by or "").removeprefix("rule:")
         if not (rid.isdigit() and int(rid) in rules):
-            f.status, f.status_changed_by, f.status_changed_at = "open", "system", now
-            f.status_note = "Reopened automatically: the accepted-risk rule expired or was revoked."
+            note = "Reopened automatically: the accepted-risk rule expired or was revoked."
+            audit(db, "system", "finding.auto_status", "finding", f.id, {"from": f.status, "to": "open", "note": note})
+            f.status, f.status_changed_by, f.status_changed_at, f.status_note = "open", "system", now, note
             released += 1
     for r in rules.values():
         for f in db.scalars(findings_for(r).where(Finding.status.in_(OPEN))):
-            f.status, f.status_changed_by, f.status_changed_at = "risk_accepted", f"rule:{r.id}", now
-            f.status_note = f"Risk accepted by {r.created_by} until {r.expires_at:%d %b %Y}: {r.reason}"
+            note = f"Risk accepted by {r.created_by} until {r.expires_at:%d %b %Y}: {r.reason}"
+            audit(db, f"rule:{r.id}", "finding.auto_status", "finding", f.id, {"from": f.status, "to": "risk_accepted", "note": note})
+            f.status, f.status_changed_by, f.status_changed_at, f.status_note = "risk_accepted", f"rule:{r.id}", now, note
             accepted += 1
     db.flush()
     return {"risk_accepted": accepted, "risk_released": released}

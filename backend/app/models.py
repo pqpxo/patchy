@@ -46,6 +46,7 @@ class UserSession(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(TS)
+    last_seen_at: Mapped[datetime | None] = mapped_column(TS)  # for SESSION_IDLE_MINUTES; updated at most once a minute
     user: Mapped[User] = relationship()
 
 
