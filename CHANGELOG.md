@@ -2,6 +2,14 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.17.1 - 2026-11-25
+
+### Changed
+- A host's SBOM download moved from the page header to the host's **Reports** tab.
+
+### Fixed
+- Saving a note on a *Minor* or *Risk accepted* finding without changing its status failed with an error. The note now saves and the status stays with Patchy or its rule. These statuses still can't be chosen by hand for other findings.
+
 ## 1.17.0 - 2026-11-24
 
 ### Added
