@@ -35,11 +35,13 @@ Usage:
   patchy_agent.py                      collect and send (what the systemd timer runs)
   patchy_agent.py --poll               send a report only if Rescan was pressed in Patchy, and pass on a Run
                                        upgrade (polled every minute with upgrades allowed, else every 5 min)
+  patchy_agent.py --menu               interactive menu, as root (installed as: sudo patchy-agent)
 Python 3.8+, standard library only.
 """
 from __future__ import annotations
 
 import argparse
+import getpass
 import glob
 import gzip
 import http.client
@@ -60,7 +62,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 DEFAULT_CONFIG = "/etc/patchy-agent/config.json"
 SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_OUTPUT = 64 * 1024
@@ -115,8 +117,9 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def run_fixed(argv, timeout=10, limit=MAX_OUTPUT):
-    """Run an allowlisted command: argument list, no shell, clean env, no stdin, bounded output."""
+def run_fixed(argv, timeout=10, limit=MAX_OUTPUT, ok_only=False):
+    """Run an allowlisted command: argument list, no shell, clean env, no stdin, bounded output.
+    With ok_only, a non-zero exit counts as a failure (output None) rather than as output to parse."""
     exe = shutil.which(argv[0], path=SAFE_PATH)
     if not exe:
         return None, None
@@ -125,6 +128,8 @@ def run_fixed(argv, timeout=10, limit=MAX_OUTPUT):
                            stderr=subprocess.STDOUT, timeout=timeout, check=False,
                            env={"PATH": SAFE_PATH, "LC_ALL": "C"})
     except (OSError, subprocess.SubprocessError):
+        return exe, None
+    if ok_only and p.returncode != 0:
         return exe, None
     return exe, p.stdout[:limit].decode("utf-8", "replace")
 
@@ -559,10 +564,11 @@ def parse_apt_simulation(text):
 
 def apt_updates():
     """Pending updates as `apt-get upgrade` would install them, from a simulation: no root, no changes."""
-    exe, text = run_fixed(["apt-get", "-s", "-o", "Debug::NoLocking=1", "upgrade"], timeout=120, limit=4 * 1024 * 1024)
+    exe, text = run_fixed(["apt-get", "-s", "-o", "Debug::NoLocking=1", "upgrade"], timeout=120, limit=4 * 1024 * 1024,
+                          ok_only=True)
     if not exe:
         return None  # not an apt system
-    if text is None:
+    if text is None:  # e.g. unmet dependencies: never report that as "nothing to install"
         raise RuntimeError("apt-get simulation failed")
     pkgs, held = parse_apt_simulation(text)
     try:
@@ -956,18 +962,651 @@ def read_token(cfg):
 REPORT_TIMEOUT = 300  # storing a big report (container image packages) can take Patchy a while; check-ins stay short
 
 
-def request(cfg, method, path, body=None, timeout=None):
+def request(cfg, method, path, body=None, timeout=None, token=None):
     ctx = ssl.create_default_context(cafile=cfg.get("ca_file") or None)
     opener = urllib.request.build_opener(_NoRedirect(), urllib.request.HTTPSHandler(context=ctx))
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(_url(cfg, path), data=data, method=method, headers={
-        "Authorization": f"Bearer {read_token(cfg)}", "Content-Type": "application/json",
+        "Authorization": f"Bearer {token or read_token(cfg)}", "Content-Type": "application/json",
         "User-Agent": f"patchy-agent/{VERSION}"})
     try:
         with opener.open(req, timeout=timeout or cfg.get("timeout_seconds", 30)) as r:
             return r.status, json.loads(r.read(1024 * 1024) or b"{}")
     except urllib.error.HTTPError as e:
         return e.code, {"detail": e.read(2048).decode("utf-8", "replace")}
+
+
+# ---------------------------------------------------------------- menu (sudo patchy-agent)
+
+ETC_DIR = "/etc/patchy-agent"
+LIB_DIR = "/usr/local/lib/patchy-agent"
+AGENT_USER = "patchy-agent"
+SELF = os.path.abspath(__file__)
+SUMMARY_FILE = "last-report.json"  # in STATE_DIR: written by the agent after each send, shown by Status
+AGENT_FILES = ("patchy_agent.py", "install.sh", "uninstall.sh", "config.example.json")
+_LETTERS = [  # PATCHY in figlet's "small" font, one letter per entry
+    (" ___ ", "| _ \\", "|  _/", "|_|  "),
+    ("   _   ", "  /_\\  ", " / _ \\ ", "/_/ \\_\\"),
+    (" _____ ", "|_   _|", "  | |  ", "  |_|  "),
+    ("  ___ ", " / __|", "| (__ ", " \\___|"),
+    (" _  _ ", "| || |", "| __ |", "|_||_|"),
+    ("__   __", "\\ \\ / /", " \\ V / ", "  |_|  "),
+]
+LOGO = ["".join(row) for row in zip(*_LETTERS)]
+KEYS_UP, KEYS_DOWN = (259, ord("k")), (258, ord("j"))  # curses.KEY_UP / KEY_DOWN, or vi keys
+KEYS_PICK, KEYS_BACK = (10, 13, 343, 261), (27, ord("q"), 260)  # Enter / KEY_ENTER / KEY_RIGHT; Esc, q, KEY_LEFT
+COLLECT_ITEMS = [
+    ("packages", "Installed packages"), ("apps", "Software added to the base OS"), ("listening_ports", "Listening ports"),
+    ("services", "Running services"), ("in_use", "Which packages running programs use"), ("updates", "Pending apt updates"),
+    ("version_probes", "Versions of common servers and runtimes"), ("docker_images", "Docker containers (root-equivalent)"),
+    ("image_packages", "Packages inside container images (Syft)"), ("image_scan", "Scan new container images automatically"),
+]
+
+
+def report_summary(report, code, error=None):
+    """What Status shows about the last report: counts only, nothing from the report's contents."""
+    upd = report.get("updates") or {}
+    pkgs = upd.get("packages") or []
+    return {"sent_at": now_iso(), "http": code, "error": error, "packages": len(report.get("packages") or []),
+            "listening": len(report.get("listening") or []), "containers": len(report.get("containers") or []),
+            "updates": len(pkgs) if report.get("updates") else None, "security": sum(1 for p in pkgs if p.get("security")),
+            "reboot_required": bool(upd.get("reboot_required")), "errors": (report.get("errors") or [])[:20]}
+
+
+def save_summary(summary, state_dir=STATE_DIR):
+    path = os.path.join(state_dir, SUMMARY_FILE)
+    try:
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(summary, f)
+        os.replace(path + ".tmp", path)
+    except OSError:
+        pass  # run by hand without the state directory: Status just has less to say
+
+
+def _clean(s, limit=300):
+    """Text from files the agent account can write, safe to print as root: no terminal escape sequences."""
+    return "".join(c if c.isprintable() else "?" for c in str(s if s is not None else ""))[:limit]
+
+
+def _read_json_nofollow(path, limit=64 * 1024):
+    """Read a small JSON object that the unprivileged agent account may have written: never through a
+    symlink, never a FIFO or device, bounded. None if it isn't a plain file holding a JSON object."""
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        data = json.loads(os.read(fd, limit) or b"null")
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+    finally:
+        os.close(fd)
+
+
+def _write_private(path, text, mode=0o640):
+    """Atomic write, owned root:patchy-agent as the installer leaves the config and token."""
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        import grp
+        try:
+            os.chown(tmp, 0, grp.getgrnam(AGENT_USER).gr_gid)
+        except KeyError:
+            pass
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+def read_raw_config(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_raw_config(path, raw):
+    _write_private(path, json.dumps(raw, indent=2) + "\n")
+
+
+def collect_on(col, key):
+    return col.get(key) == "auto" if key == "image_scan" else bool(col.get(key))
+
+
+def set_collect(raw, key, on):
+    col = raw.setdefault("collect", {})
+    if key == "image_scan":
+        col[key] = "auto" if on else "manual"
+    elif key == "version_probes":
+        col[key] = list(DEFAULT_PROBES) if on else []
+    else:
+        col[key] = on
+
+
+def version_tuple(v):
+    return tuple(int(x) for x in re.findall(r"\d+", str(v or ""))[:3])
+
+
+def _ago(iso):
+    try:
+        t = datetime.strptime(str(iso), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return "at an unknown time"
+    s = int((datetime.now(timezone.utc) - t).total_seconds())
+    return ("just now" if s < 60 else f"{s // 60} min ago" if s < 3600 else f"{s // 3600} h ago" if s < 172800
+            else f"{s // 86400} days ago")
+
+
+def _menu_key(key, i, n):
+    """('move', index) | ('pick', index) | ('back', None) for one key press in a list of n items."""
+    if key in KEYS_UP:
+        return "move", (i - 1) % n
+    if key in KEYS_DOWN:
+        return "move", (i + 1) % n
+    if key in KEYS_PICK:
+        return "pick", i
+    if key in KEYS_BACK:
+        return "back", None
+    if ord("1") <= key <= ord("9") and key - ord("1") < n:
+        return "pick", key - ord("1")
+    return "move", i
+
+
+def _screen(title, items, i, note=""):
+    """One menu screen as (text, style) lines; style is logo, title, dim, selected or ''."""
+    lines = [(row, "logo") for row in LOGO] + [("", ""), (title, "title")]
+    lines += [(row, "dim") for row in note.split("\n") if row] + [("", "")]
+    lines += [((" > " if n == i else "   ") + f"{n + 1}. {item}", "selected" if n == i else "") for n, item in enumerate(items)]
+    return lines + [("", ""), ("Up/Down to move, Enter to choose, q or Esc to go back", "dim")]
+
+
+def _pick(title, items, note=""):
+    """Arrow-key list under the logo: the chosen index, or None for Esc/q or the last item (Back/Quit)."""
+    import curses
+
+    def run(scr):
+        try:
+            curses.curs_set(0)
+            curses.use_default_colors()
+            curses.init_pair(1, curses.COLOR_CYAN, -1)
+            accent = curses.color_pair(1) | curses.A_BOLD
+        except curses.error:
+            accent = curses.A_BOLD
+        style = {"logo": accent, "title": curses.A_BOLD, "dim": curses.A_DIM, "selected": curses.A_REVERSE, "": 0}
+        i = 0
+        while True:
+            scr.erase()
+            h, w = scr.getmaxyx()
+            for y, (text, s) in enumerate(_screen(title, items, i, note)[:h]):
+                try:
+                    scr.addnstr(y, 1, text, max(w - 2, 1), style[s])
+                except curses.error:  # the bottom-right cell can't be written to
+                    pass
+            scr.refresh()
+            action, i = _menu_key(scr.getch(), i, len(items))
+            if action == "back" or action == "pick" and i == len(items) - 1:
+                return None
+            if action == "pick":
+                return i
+
+    os.environ.setdefault("ESCDELAY", "50")  # Esc goes back at once instead of after curses' 1 s wait
+    return curses.wrapper(run)
+
+
+def _ask(prompt):
+    return input(prompt)
+
+
+def _yes(prompt):
+    return _ask(prompt + " [y/N] ").strip().lower().startswith("y")
+
+
+def _pause():
+    _ask("\nPress Enter to go back ")
+
+
+def _run(argv, capture=False, **kw):
+    """A system command run by the menu (as root): an argument list, never a shell. With capture, stdout is
+    returned and stderr still reaches the screen."""
+    try:
+        p = subprocess.run(argv, stdout=subprocess.PIPE if capture else None, text=True, errors="replace", check=False, **kw)
+    except OSError as e:
+        return 127, str(e)
+    return p.returncode, p.stdout or ""
+
+
+def _prop(unit, prop):
+    code, out = _run(["systemctl", "show", unit, f"--property={prop}", "--value"], capture=True)
+    out = out.strip()
+    return out if code == 0 and out and out != "n/a" else ""
+
+
+def _rerun_installer():
+    script = os.path.join(LIB_DIR, "install.sh")
+    if not os.path.isfile(script):
+        print("The installer isn't kept on this host yet. Choose Update the agent first.")
+        return 1
+    print("Re-running the installer (it keeps the config and token)...\n")
+    return _run(["sh", script], cwd=LIB_DIR)[0]
+
+
+def summary_lines(s):
+    """Status lines for the last report summary, or a note that there isn't one."""
+    if not s:
+        return ["Last report   none recorded yet"]
+    num = lambda k: s.get(k) if isinstance(s.get(k), int) else 0  # noqa: E731
+    http = s.get("http")
+    result = "accepted" if http == 200 else f"not accepted (HTTP {num('http')})" if http else "not sent"
+    why = f": {_clean(s.get('error'), 200)}" if s.get("error") else ""
+    out = [f"Last report   {_ago(s.get('sent_at'))}, {result}{why}"]
+    counts = f"{num('packages')} packages, {num('listening')} listening ports, {num('containers')} containers"
+    if isinstance(s.get("updates"), int):
+        counts += f", {num('updates')} pending updates ({num('security')} security)"
+    out.append(f"              {counts}")
+    if s.get("reboot_required"):
+        out.append("              A reboot is waiting.")
+    errors = [_clean(e, 120) for e in s.get("errors") or [] if isinstance(e, str)][:5]
+    if errors:
+        out.append("              Problems: " + "; ".join(errors))
+    return out
+
+
+def upgrade_state():
+    if not shutil.which("apt-get", path=SAFE_PATH):
+        return "not available (no apt here)"
+    return "allowed" if upgrades_allowed() else "not allowed"
+
+
+def upgrade_lines(state_dir=STATE_DIR, out_dir=UPGRADE_DIR):
+    out = []
+    pending = _read_json_nofollow(os.path.join(state_dir, UPGRADE_PENDING))
+    if pending:
+        out.append(f"Waiting       an upgrade Patchy asked for {_ago(pending.get('requested_at'))}")
+    last = _read_json_nofollow(os.path.join(out_dir, "result.json"))
+    if last:
+        code = last.get("exit_code")
+        out.append(f"Last upgrade  {'succeeded' if code == 0 else f'failed (exit code {_clean(code, 10)})'}, "
+                   f"finished {_ago(last.get('finished_at'))}")
+    return out
+
+
+def status_lines(cfg, state_dir=STATE_DIR):
+    col = cfg["collect"]
+    syft = os.path.join(LIB_DIR, "syft.version")
+    syft = f", Syft {_clean(read_text(syft, 32).strip(), 20)}" if os.path.isfile(syft) else ", no Syft"
+    return [f"Agent         {VERSION} on {socket.gethostname()}", f"Server        {cfg.get('server_url') or 'not set'}",
+            *summary_lines(_read_json_nofollow(os.path.join(state_dir, SUMMARY_FILE))),
+            f"Next report   {_prop('patchy-agent.timer', 'NextElapseUSecRealtime') or 'not scheduled'}",
+            f"Next check-in {_prop('patchy-agent-poll.timer', 'NextElapseUSecRealtime') or 'not scheduled'}",
+            f"Containers    {'on' + syft if col.get('docker_images') else 'off'}",
+            f"Run upgrade   {upgrade_state()}", *upgrade_lines(state_dir)]
+
+
+def ping(cfg, token=None):
+    """(ok, message in plain words, body) for a connection test."""
+    try:
+        code, body = request(cfg, "GET", "/api/agent/ping", token=token, timeout=15)
+    except SystemExit as e:  # a config or token file problem, already in words
+        return False, str(e), {}
+    except ValueError:  # not JSON: a proxy's error page, or not Patchy at all
+        return False, "Something answered at that address, but it isn't Patchy. Check the server address.", {}
+    except OSError as e:
+        reason = getattr(e, "reason", None) or e
+        text = str(reason)
+        if isinstance(reason, socket.gaierror) or "name resolution" in text or "not known" in text:
+            hint = " This host can't look up the server's name: check its DNS, or add the name to /etc/hosts."
+        elif isinstance(reason, ssl.SSLError) or "CERTIFICATE" in text.upper():
+            hint = " The server's certificate isn't trusted here. For a self-signed certificate, set a CA file."
+        elif isinstance(reason, ConnectionRefusedError) or "refused" in text:
+            hint = " Nothing is listening at that address and port."
+        else:
+            hint = ""
+        return False, f"Couldn't reach Patchy: {_clean(text, 200)}.{hint}", {}
+    if code == 200:
+        return True, f"Connected. Patchy knows this host as {_clean(body.get('host'), 100)}.", body
+    if code == 401:
+        return False, "Patchy rejected the token. It may have been rotated or revoked; replace it here.", body
+    return False, f"Patchy answered HTTP {code}.", body
+
+
+def token_hint(cfg):
+    try:
+        return "ends …" + read_token(cfg)[-4:]
+    except (OSError, SystemExit):
+        return "missing or unreadable"
+
+
+def download_agent(cfg, dest):
+    """Fetch this Patchy's bundled agent files into dest (the same files the host page's update command gets)."""
+    ctx = ssl.create_default_context(cafile=cfg.get("ca_file") or None)
+    opener = urllib.request.build_opener(_NoRedirect(), urllib.request.HTTPSHandler(context=ctx))
+    for name in AGENT_FILES:
+        with opener.open(_url(cfg, f"/api/agent/files/{name}"), timeout=60) as r:
+            data = r.read(5 * 1024 * 1024)
+        with open(os.path.join(dest, name), "wb") as f:
+            f.write(data)
+    found = re.search(rb'^VERSION = "([^"]+)"', open(os.path.join(dest, "patchy_agent.py"), "rb").read(), re.M)
+    if not found:
+        raise ValueError("the downloaded file isn't the Patchy agent")
+    return found.group(1).decode()
+
+
+def _menu_status(cfg_path):
+    print("\n".join(status_lines(load_config(cfg_path))))
+    _pause()
+
+
+def _menu_send(cfg_path):
+    while True:
+        i = _pick("Send a report now", ["Send a report now", "Preview what would be sent (sends nothing)", "Back"],
+                  "The report is collected by the patchy-agent service account, never as root.")
+        if i is None:
+            return
+        if i == 0:
+            print("Collecting and sending. With container image scanning this can take a few minutes...")
+            code, _ = _run(["systemctl", "start", "patchy-agent.service"])
+            print("Done." if code == 0 else "The report didn't go through. Logs has the details.")
+            print("\n".join(summary_lines(_read_json_nofollow(os.path.join(STATE_DIR, SUMMARY_FILE)))))
+        else:
+            print("Collecting as the patchy-agent account...")
+            code, out = _run(["runuser", "-u", AGENT_USER, "--", sys.executable, SELF, "--config", cfg_path, "--dry-run"],
+                             capture=True)
+            try:
+                report = json.loads(out)
+            except ValueError:
+                print(f"Collecting failed:\n{_clean(out[-2000:], 2000)}")
+            else:
+                print("\n".join(summary_lines(report_summary(report, None))[1:]))
+                if _yes("Show the whole report?") and _run(["less"], input=out)[0] == 127:
+                    print(out)
+        _pause()
+
+
+def _docker_access(on):
+    """Join or leave the docker group for the containers switch. False if nothing changed."""
+    if on:
+        if not os.path.exists(DOCKER_SOCKET):
+            print(f"Docker isn't running on this host (no {DOCKER_SOCKET}).")
+            return False
+        print(f"Reading the Docker socket needs the docker group, which is root-equivalent: anyone who controls "
+              f"the {AGENT_USER} account could then control this host.")
+        if not _yes(f"Add {AGENT_USER} to the docker group?"):
+            return False
+        if _run(["usermod", "-aG", "docker", AGENT_USER])[0]:
+            print("That didn't work; see the message above.")
+            return False
+        print("Containers are on from the next report. To scan the packages inside them, switch on "
+              "'Packages inside container images' too.")
+    else:
+        _run(["gpasswd", "-d", AGENT_USER, "docker"], stderr=subprocess.DEVNULL)  # not in the group is fine too
+        print(f"Containers are off and {AGENT_USER} has left the docker group.")
+    return True
+
+
+def _menu_collect(cfg_path):
+    while True:
+        col = load_config(cfg_path)["collect"]
+        items = [f"[{'x' if collect_on(col, k) else ' '}] {label}" for k, label in COLLECT_ITEMS]
+        i = _pick("What it collects", items + ["App directories", "Back"],
+                  "Enter switches an item on or off. Changes apply from the next report.")
+        if i is None:
+            return
+        if i == len(COLLECT_ITEMS):
+            _menu_app_dirs(cfg_path)
+            continue
+        key, on = COLLECT_ITEMS[i][0], not collect_on(col, COLLECT_ITEMS[i][0])
+        if key == "docker_images" and not _docker_access(on):
+            _pause()
+            continue
+        raw = read_raw_config(cfg_path)
+        set_collect(raw, key, on)
+        save_raw_config(cfg_path, raw)
+        if key == "image_packages" and on and not os.path.exists(os.path.join(LIB_DIR, "syft")):
+            if not col.get("docker_images"):
+                print("This needs Docker containers switched on as well.")
+            elif _yes("Scanning images needs Syft. Re-run the installer, which asks before downloading it?"):
+                try:
+                    os.remove(os.path.join(LIB_DIR, "syft.declined"))
+                except OSError:
+                    pass
+                _rerun_installer()
+            _pause()
+        elif key == "docker_images":
+            _pause()
+
+
+def _ask_int(label, default, lo, hi):
+    answer = _ask(f"{label} [{default}]: ").strip()
+    try:
+        n = int(answer) if answer else default
+    except ValueError:
+        n = default
+    return max(lo, min(hi, n))
+
+
+def _menu_app_dirs(cfg_path):
+    while True:
+        raw = read_raw_config(cfg_path)
+        dirs = [d for d in raw.get("app_dirs") or [] if isinstance(d, dict)]
+        listed = "\n".join(f"  {_clean(d.get('path'), 200)}" for d in dirs) or "  None yet."
+        i = _pick("App directories", ["Add a directory", "Remove a directory", "Back"],
+                  f"File and folder names (never contents) under these are reported.\n{listed}")
+        if i is None:
+            return
+        if i == 0:
+            path = _ask("Directory, like /opt/myapp: ").strip()
+            problem = check_root(path) or (None if os.path.isdir(path) else "doesn't exist")
+            if not path:
+                continue
+            if problem:
+                print(f"{path} {problem}; nothing changed.")
+            elif any(d.get("path") == path for d in dirs):
+                print(f"{path} is already listed.")
+            else:
+                entry = {"path": path, "max_depth": _ask_int("Folder depth to list", 3, 1, HARD_MAX_DEPTH),
+                         "max_files": _ask_int("Most names to list", 1000, 1, HARD_MAX_FILES)}
+                raw["app_dirs"] = dirs + [entry]
+                save_raw_config(cfg_path, raw)
+                print(f"Added {path}. It's listed from the next report.")
+                if path.startswith("/home/"):
+                    print("The service can't see /home by default. Allow it with: sudo systemctl edit patchy-agent, "
+                          "then add [Service] and ProtectHome=read-only.")
+        else:
+            if not dirs:
+                print("There's nothing to remove.")
+            else:
+                j = _pick("Remove which directory?", [_clean(d.get("path"), 200) for d in dirs] + ["Back"])
+                if j is None:
+                    continue
+                raw["app_dirs"] = dirs[:j] + dirs[j + 1:]
+                save_raw_config(cfg_path, raw)
+                print(f"Removed {_clean(dirs[j].get('path'), 200)}.")
+        _pause()
+
+
+def _menu_upgrade():
+    if not shutil.which("apt-get", path=SAFE_PATH):
+        print("Run upgrade needs apt (Debian, Ubuntu or Raspberry Pi OS).")
+        _pause()
+        return
+    while True:
+        allowed = upgrades_allowed()
+        note = "\n".join([f"Run upgrade is {'allowed' if allowed else 'not allowed'} on this host.", *upgrade_lines()])
+        i = _pick("Run upgrade", ["Stop allowing Run upgrade" if allowed else "Allow Run upgrade",
+                                  "Show the last upgrade's output", "Back"], note)
+        if i is None:
+            return
+        if i == 0:
+            if allowed:
+                ok = _yes("Stop Patchy's Run upgrade working here? This removes the root upgrade service.")
+            else:
+                print("A root service will run one fixed command, apt-get update && apt-get upgrade, when someone "
+                      "presses Run upgrade in Patchy. Nothing else can be run through it, and it never reboots.")
+                ok = _yes("Allow Run upgrade?")
+            if ok:
+                _write_private(UPGRADES_FILE, ("no" if allowed else "yes") + "\n", mode=0o644)
+                _rerun_installer()
+        else:
+            try:
+                lines = read_text(os.path.join(UPGRADE_DIR, "upgrade.log"), 256 * 1024).splitlines()[-100:]
+                print("\n".join(_clean(line, 500) for line in lines) or "The log is empty.")
+            except OSError:
+                print("No upgrade has run on this host yet.")
+        _pause()
+
+
+def _menu_server(cfg_path):
+    while True:
+        cfg = load_config(cfg_path)
+        note = f"Server: {cfg.get('server_url') or 'not set'}\nToken: {token_hint(cfg)}"
+        note += f"\nCA file: {cfg['ca_file']}" if cfg.get("ca_file") else ""
+        i = _pick("Server and token", ["Test the connection", "Replace the token", "Change the server address",
+                                       "Set a CA file (self-signed certificates)", "Back"], note)
+        if i is None:
+            return
+        if i == 0:
+            print(ping(cfg)[1])
+        elif i == 1:
+            token = getpass.getpass("Paste the new token from the host page in Patchy (input hidden): ").strip()
+            ok, msg, _ = ping(cfg, token=token) if token.startswith("pa_") else (False, "That isn't a Patchy agent token (pa_...).", {})
+            if ok:
+                _write_private(cfg["token_file"], token + "\n")
+                print("Patchy accepted the token, and it's saved.")
+            else:
+                print(f"{msg} Nothing changed.")
+        elif i in (2, 3):
+            raw = read_raw_config(cfg_path)
+            if i == 2:
+                url = _ask(f"Patchy address [{cfg.get('server_url')}]: ").strip().rstrip("/")
+                change = {"server_url": url} if url else {}
+                if url.startswith("http://") and not cfg.get("allow_insecure_http"):
+                    if _yes(f"{url} is plain HTTP, so the token is sent unencrypted. Allow it on this trusted LAN?"):
+                        change["allow_insecure_http"] = True
+                    else:
+                        change = {}
+            else:
+                path = _ask("CA certificate file (PEM), or - to stop using one: ").strip()
+                change = {"ca_file": None} if path == "-" else {"ca_file": path} if os.path.isfile(path) else {}
+                if path and path != "-" and not change:
+                    print(f"{path} isn't a file.")
+            if change:
+                ok, msg, _ = ping({**cfg, **change})
+                if ok:
+                    save_raw_config(cfg_path, {**raw, **change})
+                    print(f"{msg} Saved.")
+                else:
+                    print(f"{msg} Nothing changed.")
+        _pause()
+
+
+def _menu_logs():
+    units = [("Reports", "patchy-agent"), ("Check-ins", "patchy-agent-poll"), ("Upgrades", "patchy-agent-upgrade")]
+    while True:
+        i = _pick("Logs", [f"{label}: last 50 lines" for label, _ in units] + ["Follow reports and check-ins live", "Back"])
+        if i is None:
+            return
+        if i < len(units):
+            _run(["journalctl", "-u", units[i][1], "-n", "50", "--no-pager"])
+        else:
+            print("Press Ctrl+C to stop.")
+            try:
+                _run(["journalctl", "-u", "patchy-agent", "-u", "patchy-agent-poll", "-n", "20", "-f"])
+            except KeyboardInterrupt:
+                pass
+        _pause()
+
+
+def _menu_update(cfg_path):
+    cfg = load_config(cfg_path)
+    ok, msg, body = ping(cfg)
+    latest = body.get("agent_version")
+    if not ok:
+        print(msg)
+    elif not isinstance(latest, str):
+        print("This Patchy doesn't say which agent it has (it's older than 1.24). Use the update command on the host page.")
+    elif version_tuple(latest) <= version_tuple(VERSION):
+        print(f"Up to date: {VERSION} is the newest agent this Patchy has.")
+    elif _yes(f"Update from {VERSION} to {_clean(latest, 20)}? It downloads the agent from {cfg['server_url']} "
+              f"and re-runs the installer; the config and token stay."):
+        import tempfile
+        dest = tempfile.mkdtemp(prefix="patchy-agent-")
+        try:
+            got = download_agent(cfg, dest)
+            code = _run(["sh", os.path.join(dest, "install.sh")], cwd=dest)[0]
+        except (OSError, ValueError) as e:
+            print(f"The download failed, so nothing changed: {_clean(getattr(e, 'reason', None) or e, 200)}")
+            code, got = 1, None
+        finally:
+            shutil.rmtree(dest, ignore_errors=True)
+        if code == 0 and got:
+            print(f"Updated to {got}. Reopening the menu.")
+            _pause()
+            os.execv(sys.executable, [sys.executable, os.path.join(LIB_DIR, "patchy_agent.py"), "--config", cfg_path, "--menu"])
+        elif got:
+            print("The installer reported a problem; see above.")
+    _pause()
+
+
+def _menu_remove():
+    host = socket.gethostname()
+    print("This stops the agent and removes it, its config, token and services from this host. "
+          "Patchy keeps the host and its history.")
+    if _ask(f"Type the host name ({host}) to remove the agent: ").strip() != host:
+        print("Not removed.")
+        _pause()
+        return False
+    script = os.path.join(LIB_DIR, "uninstall.sh")
+    code = _run(["sh", script])[0] if os.path.isfile(script) else 1
+    print("Removed. Now revoke it on the host page in Patchy, so its token can't be used again." if code == 0
+          else f"Couldn't finish: run sudo sh {script} or the uninstall.sh you installed from.")
+    _pause()
+    return code == 0
+
+
+def header_note(cfg, state_dir=STATE_DIR):
+    s = _read_json_nofollow(os.path.join(state_dir, SUMMARY_FILE))
+    last = (f"last report {_ago(s.get('sent_at'))} ({'OK' if s.get('http') == 200 else 'failed'})" if s
+            else "no report recorded yet")
+    return f"Server: {cfg.get('server_url') or 'not set'}  ·  {last}  ·  Run upgrade: {upgrade_state()}"
+
+
+def cmd_menu(cfg_path):
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        print("patchy-agent: the menu needs a terminal", file=sys.stderr)
+        return 2
+    try:
+        import curses  # noqa: F401 - Linux terminals only
+    except ImportError:
+        print("patchy-agent: the menu needs a Linux terminal", file=sys.stderr)
+        return 2
+    if os.geteuid() != 0:
+        print("patchy-agent: the menu changes root-owned settings. Run: sudo patchy-agent", file=sys.stderr)
+        return 2
+    if not os.path.isfile(cfg_path):
+        print(f"patchy-agent: no config at {cfg_path}. Install the agent first (the commands are on the host page "
+              "in Patchy).", file=sys.stderr)
+        return 2
+    sections = [("Status", lambda: _menu_status(cfg_path)), ("Send a report now", lambda: _menu_send(cfg_path)),
+                ("What it collects", lambda: _menu_collect(cfg_path)), ("Run upgrade", _menu_upgrade),
+                ("Server and token", lambda: _menu_server(cfg_path)), ("Logs", _menu_logs),
+                ("Update the agent", lambda: _menu_update(cfg_path))]
+    try:
+        while True:
+            cfg = load_config(cfg_path)
+            i = _pick(f"patchy-agent {VERSION} on {socket.gethostname()}",
+                      [label for label, _ in sections] + ["Remove the agent", "Quit"], header_note(cfg))
+            if i is None:
+                return 0
+            if i == len(sections):
+                if _menu_remove():
+                    return 0
+            else:
+                sections[i][1]()
+    except KeyboardInterrupt:
+        print()
+        return 0
 
 
 def main(argv=None):
@@ -978,9 +1617,12 @@ def main(argv=None):
     ap.add_argument("--send", action="store_true", help="with --sample: send it to the server")
     ap.add_argument("--check", action="store_true", help="test the server URL and credential")
     ap.add_argument("--poll", action="store_true", help="send a report only if Rescan was pressed in Patchy")
+    ap.add_argument("--menu", action="store_true", help="interactive menu (run as root: sudo patchy-agent)")
     ap.add_argument("--version", action="version", version=VERSION)
     a = ap.parse_args(argv)
 
+    if a.menu:
+        return cmd_menu(a.config)
     if a.sample and not a.send:
         print(json.dumps(sample_report(), indent=2))
         return 0
@@ -1013,8 +1655,13 @@ def main(argv=None):
         code, body = request(cfg, "POST", "/api/agent/report", report,
                              timeout=max(cfg.get("timeout_seconds", 30), REPORT_TIMEOUT))
     except OSError as e:  # URLError, timeouts, refused connections: one clear line instead of a traceback
-        print(f"Could not send the report to Patchy: {getattr(e, 'reason', None) or e}", file=sys.stderr)
+        reason = getattr(e, "reason", None) or e
+        if not a.sample:
+            save_summary(report_summary(report, None, f"couldn't reach Patchy: {reason}"))
+        print(f"Could not send the report to Patchy: {reason}", file=sys.stderr)
         return 1
+    if not a.sample:
+        save_summary(report_summary(report, code, None if code == 200 else str(body.get("detail"))[:200]))
     print(f"HTTP {code}: {body}")
     if code == 200 and report.get("upgrade_result"):
         upgrade_reported()

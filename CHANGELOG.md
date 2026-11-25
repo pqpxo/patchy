@@ -2,6 +2,19 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.24.0 - 2026-11-25
+
+### Added
+- **Agent menu**: `sudo patchy-agent` on a host opens a menu to see the agent's status (last report, what it found, next run), send a report now or preview one, switch what it collects, manage app directories, allow or stop Run upgrade, test the connection, replace the token after a Rotate, change the server address or CA file, read the logs, update the agent and remove it. Agent 1.7.0.
+- Settings that change services (Run upgrade, Docker containers, Syft) are applied by re-running the installer, which now stays on the host in `/usr/local/lib/patchy-agent`.
+
+### Fixed
+- A Run upgrade request more than a day old is now failed when the agent checks in, instead of waiting for someone to open the host page. Before, a host that came back after a long time could still be upgraded.
+- If apt fails to list updates on a host (for example, unmet dependencies), the Updates tab keeps the last list and marks it out of date instead of showing "Up to date".
+
+### Upgrade notes
+- Update the agent on each host from its Agent card to get the menu. From then on, the menu's **Update the agent** does it for you.
+
 ## 1.23.0 - 2026-11-25
 
 ### Added
