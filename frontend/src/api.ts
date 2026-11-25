@@ -35,6 +35,12 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith("/api/auth/login")) onUnauthorised();
+    // Patchy's own 429s are JSON with a detail. Any other came from a proxy or CDN rate limit: go to its page, if set.
+    const blocked = document.querySelector<HTMLMetaElement>('meta[name="blocked-url"]')?.content;
+    if (res.status === 429 && blocked && typeof data.detail !== "string") {
+      location.replace(blocked);
+      return new Promise<T>(() => {}); // the page is leaving, so don't flash an error or the sign-in page
+    }
     throw new ApiError(res.status, typeof data.detail === "string" ? data.detail : `Request failed (${res.status})`,
       data.errors ?? []);
   }

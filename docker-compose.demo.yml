@@ -4,7 +4,11 @@
 #
 #   docker compose -f docker-compose.demo.yml up -d --build
 #
-# Then point your reverse proxy at port DEMO_PORT (8081 by default). Don't run this with your real .env.
+# Then point your reverse proxy at port DEMO_PORT (8081 by default). If your proxy or CDN rate-limits it, set
+# DEMO_BLOCKED_URL to a page to send blocked visitors to. Don't run this with your real database.
+#
+# The vulnerability data is a bundled snapshot (backend/app/demo_snapshot.json.gz). To refresh it (needs internet),
+# run `python -m app.cli demo-build` in backend/ and rebuild. To change the made-up lab, edit backend/app/demo.py.
 # It's its own stack, so it never shares a network with a real Patchy (and its database) in the same folder.
 name: patchy-demo
 services:
@@ -20,6 +24,7 @@ services:
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
       FEED_STALE_HOURS: "87600"  # the snapshot is meant to be old; don't warn about it
       NEWS_FEEDS: ""
+      BLOCKED_URL: ${DEMO_BLOCKED_URL:-}  # where to send visitors your proxy or CDN rate-limits
     # $$ leaves the variable to the container's shell. A single $ is filled in by Compose from the folder's .env,
     # which would pick up a real install's PORT and listen on the wrong port.
     command: ["sh", "-c", "alembic upgrade head && python -m app.cli demo-load && exec uvicorn app.main:app --host 0.0.0.0 --port \"$$PORT\" --workers 1 --proxy-headers --forwarded-allow-ips \"$$FORWARDED_ALLOW_IPS\" --no-server-header"]
