@@ -102,6 +102,24 @@ def test_a_new_token_is_saved_only_when_patchy_accepts_it(menu, tmp_path, monkey
     assert (tmp_path / "token").read_text().strip() == "pa_good"
 
 
+def test_a_ca_file_is_copied_where_the_service_can_read_it(menu, tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "lab-ca.pem").write_text("-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n")
+    monkeypatch.setattr(agent_mod, "ping", lambda cfg, token=None: (True, "Connected.", {}))
+    menu["picks"], menu["answers"] = [3, None], [str(home / "lab-ca.pem")]
+    agent_mod._menu_server(menu["cfg"])
+    saved = menu["raw"]()["ca_file"]
+    assert saved == str(tmp_path / "ca.pem")  # next to the config and token, not under /home or /root
+    assert (tmp_path / "ca.pem").read_text() == (home / "lab-ca.pem").read_text()
+    menu["picks"], menu["answers"] = [3, None], [saved]  # choosing the copy again leaves it alone
+    agent_mod._menu_server(menu["cfg"])
+    assert menu["raw"]()["ca_file"] == saved
+    menu["picks"], menu["answers"] = [3, None], ["-"]
+    agent_mod._menu_server(menu["cfg"])
+    assert menu["raw"]()["ca_file"] is None
+
+
 def test_connection_problems_are_explained(monkeypatch):
     cfg = agent_mod.load_config(str(AGENT_DIR / "config.example.json"))
 
