@@ -270,8 +270,8 @@ function AgentPanel({ host, onChange }: { host: Host; onChange: () => void }) {
         ]} />
       ) : <p className="muted">No agent enrolled. Create a credential, then install the agent on this host.</p>}
       {host.agent_outdated && a && !a.revoked_at && !token && <div className="token-box">
-        <div className="alert warn"><p><strong>Update available.</strong> This server bundles a newer agent. Run this on the host; it keeps the existing token and settings, so nothing needs rotating.</p></div>
-        <CodeBlock code={install} />
+        <div className="alert warn"><p><strong>Update available.</strong> This server bundles a newer agent. Run this on the host; it keeps the existing token and settings, so nothing needs rotating.</p>
+          <details><summary>Update command</summary><CodeBlock code={install} /></details></div>
       </div>}
       <div className="actions">
         {(!a || a.revoked_at) && <button className="btn primary" onClick={() => issue("agent")}>{a ? "Re-enrol" : "Create agent credential"}</button>}

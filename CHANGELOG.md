@@ -2,6 +2,16 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.22.0 - 2026-11-25
+
+### Added
+- `BLOCKED_URL` (`DEMO_BLOCKED_URL` for the demo): a page to send visitors to when a proxy or CDN in front of Patchy rate-limits them, such as a Cloudflare rate limiting rule. Patchy's own rate limits still show their usual message.
+
+### Changed
+- The demo's banner puts "Get Patchy on GitHub" on its own line.
+- On a host page, the agent update command is folded away under the "Update available" note. Open it to copy the command.
+- The README links to the live demo instead of explaining how to host one. `docker-compose.demo.yml`'s comments cover that.
+
 ## 1.21.1 - 2026-11-25
 
 ### Fixed
