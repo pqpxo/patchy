@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
-import { del, get, post, qs, type AddedApp, type Agent, type Asset, type Container, type Finding, type Host, type Page, type ScanRun } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { del, get, post, qs, type AddedApp, type Agent, type Asset, type Container, type Finding, type Host, type HostUpdates, type Page, type ScanRun,
+  type UpgradeRun } from "../api";
 import { Icon } from "../icons";
 import { fmtDate, safeUrl } from "../format";
 import { usePrefs } from "../prefs";
@@ -22,6 +23,10 @@ const hostCols: Col<Host>[] = [
   { id: "last_report", label: "Last report", sort: "last_report", first: "desc", cell: (h) => <When iso={h.last_report_at} /> },
   { id: "components", label: "Assets", sort: "components", first: "desc", num: true, cell: (h) => h.component_count },
   { id: "exposure", label: "Open findings", sort: "findings", first: "desc", cell: (h) => <Exposure e={h.exposure} /> },
+  { id: "updates", label: "Updates", hidden: true, cell: (h) => h.pending_updates == null ? <span className="muted">-</span> : <>
+    <span className="num">{h.pending_updates}</span>{h.security_updates > 0 && <span className="badge tone-bad">{h.security_updates} security</span>}
+    {h.reboot_required && <span className="badge tone-warn">Reboot</span>}
+  </> },
   { id: "eol", label: "OS support", sort: "eol", first: "desc", hidden: true, cell: (h) => <Eol s={h.os_eol_state} info={h.os_eol} quiet={false} /> },
 ];
 
@@ -88,6 +93,8 @@ const DOCKER_ON = [
 ].join("\n");
 
 const SYFT_ON = "sudo rm -f /usr/local/lib/patchy-agent/syft.declined && cd ~/patchy-agent && sudo sh install.sh";
+const UPGRADES_ASK = "sudo rm -f /etc/patchy-agent/upgrades && cd ~/patchy-agent && sudo sh install.sh";
+const APT_UPGRADE = "sudo apt-get update && sudo apt-get upgrade";
 
 type ImageSummary = { packages: number; total: number; worst: string | null; kev: boolean };
 
@@ -203,18 +210,19 @@ function AgentHelp() {
     <dialog ref={ref} className="sheet" aria-labelledby="agent-help-title" onClick={(e) => { if (e.target === ref.current) ref.current.close(); }}>
       <div className="card-head"><h2 id="agent-help-title">About the agent</h2>
         <button type="button" className="icon-btn" aria-label="Close" onClick={() => ref.current?.close()}><Icon name="close" /></button></div>
-      <p>A small, read-only Python script that keeps this host's inventory current. It runs every 6 hours (and a few minutes after boot) and sends one report to Patchy.</p>
+      <p>A small Python script that keeps this host's inventory current. It runs every 6 hours (and a few minutes after boot) and sends one report to Patchy.</p>
       <h3>What it collects</h3>
       <ul>
         <li>Installed OS packages, which Patchy checks against OSV.</li>
         <li>Listening ports and running services.</li>
         <li>Versions of common servers and runtimes, such as nginx, OpenSSH, OpenSSL, Python and Node.js.</li>
         <li>Software added to the base OS: packages someone chose to install, plus Snap and Flatpak apps.</li>
+        <li>Pending apt updates, from a simulated <code>apt-get upgrade</code> that changes nothing, and whether a reboot is waiting.</li>
         <li>Optional: Docker containers (name, image, state, ports and mount locations), and file names in folders listed under <code>app_dirs</code>.</li>
       </ul>
       <h3>How it stays safe</h3>
       <ul>
-        <li>It only connects out to this server. It opens no ports and changes nothing on the host.</li>
+        <li>It only connects out to this server and opens no ports. It changes nothing on the host, unless you allow Run upgrade (below).</li>
         <li>It runs as the unprivileged <code>patchy-agent</code> user in a locked-down systemd service.</li>
         <li>The token is shown once. Patchy stores only a hash; the host keeps it in <code>/etc/patchy-agent/token</code>.</li>
       </ul>
@@ -225,7 +233,12 @@ function AgentHelp() {
         <li><strong>Revoked</strong>: reports are rejected. Re-enrol to issue a new token.</li>
       </ul>
       <h3>Rescan</h3>
-      <p><strong>Rescan</strong> re-checks this host's inventory against the latest vulnerability data straight away. Agents from 1.2 also check in every 5 minutes and send a fresh report when a rescan is waiting.</p>
+      <p><strong>Rescan</strong> re-checks this host's inventory against the latest vulnerability data straight away. Agents from 1.2 also check in every 5 minutes (every minute with Run upgrade allowed) and send a fresh report when a rescan is waiting.</p>
+      <h3>Run upgrade</h3>
+      <p>Off unless you allow it at install time (agent 1.6 and later, apt hosts only). Then a separate root service runs one fixed command,
+        <code>apt-get update && apt-get upgrade</code>, when you press <strong>Run upgrade</strong> on the Updates tab. Patchy can't make it run
+        anything else: the agent only touches a request file, and the service reads nothing but its timestamp. To change your answer:</p>
+      <CodeBlock code={UPGRADES_ASK} />
       <h3>Docker containers</h3>
       <p>Reading the Docker socket needs the docker group, which is root-equivalent, so it is off unless you allow it at install time. To turn it on later:</p>
       <CodeBlock code={DOCKER_ON} />
@@ -299,6 +312,83 @@ function AgentPanel({ host, onChange }: { host: Host; onChange: () => void }) {
   );
 }
 
+const WAITING = (r?: UpgradeRun) => r?.status === "queued" || r?.status === "sent";
+
+function UpdatesTab({ host, onChange }: { host: Host; onChange: () => void }) {
+  const { data, error, reload } = useLoad(() => get<HostUpdates>(`/api/hosts/${host.id}/updates`), [host.id],
+    (d) => (WAITING(d?.runs[0]) ? 5000 : null));
+  const last = data?.runs[0];
+  const was = useRef<UpgradeRun | undefined>(undefined);
+  useEffect(() => {  // a run that was waiting has finished: say so, and refresh the host (its update count changed)
+    if (was.current && WAITING(was.current) && last?.id === was.current.id && !WAITING(last)) {
+      toast(last.status === "succeeded" ? "Upgrade finished." : `Upgrade failed${last.note ? `: ${last.note}` : "."}`, last.status === "succeeded" ? "good" : "bad");
+      onChange();
+    }
+    was.current = last;
+  }, [last, onChange]);
+  if (error) return <ErrorBox error={error} onRetry={reload} />;
+  if (!data) return <Skeleton />;
+  const u = data.updates;
+  if (!u) return <Empty title="No update information for this host.">
+    {!host.agent ? "Enrol an agent on this host to see its pending updates."
+      : agentAtLeast(host.agent.agent_version, 1, 6) ? <>Pending updates are listed for apt hosts (Debian, Ubuntu, Raspberry Pi OS). This host doesn't use apt, or <code>updates</code> is turned off in the agent config.</>
+      : "Agents from 1.6 list pending apt updates. Update the agent from the Agent card on the Overview tab."}
+  </Empty>;
+  const pkgs = data.packages;
+  const security = pkgs.filter((p) => p.security).length;
+  const run = async () => {
+    if (!window.confirm(`Run apt-get update && apt-get upgrade on ${host.name}? Packages are upgraded straight away and their services may restart.`)) return;
+    try { await post(`/api/hosts/${host.id}/upgrade`); toast("Upgrade requested. The agent passes it on within a minute."); reload(); }
+    catch (e) { toast(errText(e), "bad"); reload(); }
+  };
+  return <>
+    <section className="card">
+      <div className="card-head"><h2>Pending updates</h2>
+        {data.can_upgrade && <button className="btn primary" onClick={run} disabled={WAITING(last)}
+          title="apt-get update && apt-get upgrade on this host"><Icon name="download" size={14} /> Run upgrade</button>}</div>
+      <div className="plan-summary">
+        <div><b>{pkgs.length}</b><span>updates</span></div>
+        <div><b>{security}</b><span>security</span></div>
+        <div><b>{data.fixes}</b><span>open findings fixed</span></div>
+        <div><b>{u.held_back.length}</b><span>kept back</span></div>
+      </div>
+      <p className="small muted">As of the last report, <When iso={u.reported_at} />. Package lists refreshed <When iso={u.lists_at} />;
+        apt's daily timer keeps them current, and Run upgrade refreshes them first.</p>
+      {WAITING(last) && <div className="alert info run" role="status" aria-live="polite"><span className="spin" aria-hidden="true" />
+        <span className="grow">{last!.status === "queued"
+          ? <>Upgrade requested by {last!.requested_by} <When iso={last!.requested_at} />. Waiting for the agent, which checks in every minute.</>
+          : <>Upgrading since <When iso={last!.sent_at} />. The result appears here when apt finishes.</>}</span></div>}
+      {u.reboot_required && <div className="alert warn"><p><strong>Reboot needed</strong>{u.reboot_packages.length ? <> for {u.reboot_packages.join(", ")}</> : null}.
+        Patchy doesn't reboot hosts; run <code>sudo reboot</code> when it suits.</p></div>}
+      {!data.can_upgrade && <details>
+        <summary>Run upgrade is off for this host</summary>
+        <p className="small">Run this on the host yourself:</p><CodeBlock code={APT_UPGRADE} />
+        <p className="small">Or allow Run upgrade (agent 1.6 or later). The installer asks again; answer <kbd>y</kbd>. It adds a root service that runs only
+          <code> apt-get update && apt-get upgrade</code>, and only when you press the button here.</p><CodeBlock code={UPGRADES_ASK} />
+      </details>}
+    </section>
+    {pkgs.length === 0 ? <Empty title="Up to date.">Nothing for apt-get upgrade to install.</Empty> : (
+      <div className="table-wrap"><table className="table compact"><thead><tr><th>Package</th><th>Installed</th><th>Available</th>
+        <th className="num" title="Open findings on this host that this version fixes">Fixes</th></tr></thead>
+        <tbody>{pkgs.map((p) => <tr key={p.name}>
+          <td className="nowrap">{p.name}{p.security && <span className="badge tone-bad">Security</span>}</td>
+          <td className="num muted nowrap">{p.installed ?? "-"}</td><td className="num nowrap">{p.available}</td>
+          <td className="num">{p.fixes || <span className="muted">-</span>}</td></tr>)}</tbody></table></div>
+    )}
+    {u.held_back.length > 0 && <p className="small muted gap-top">Kept back by apt, so Run upgrade leaves them alone: {u.held_back.join(", ")}.
+      They need packages added or removed, or are being phased in. <code>sudo apt-get dist-upgrade</code> on the host installs them; check what it would remove first.</p>}
+    {data.runs.length > 0 && <section className="card gap-top">
+      <h2>Upgrade history</h2>
+      {data.runs.map((r) => <details key={r.id} className="run-log">
+        <summary><Status s={r.status === "sent" ? "running" : r.status} /> #{r.id} by {r.requested_by} <When iso={r.requested_at} />
+          {r.exit_code != null && r.exit_code !== 0 && <span className="muted"> · exit code {r.exit_code}</span>}</summary>
+        {r.note && <p className="small">{r.note}</p>}
+        {r.output ? <CodeBlock code={r.output} wrap={false} /> : !r.note && <p className="small muted">{WAITING(r) ? "Still running." : "No output."}</p>}
+      </details>)}
+    </section>}
+  </>;
+}
+
 type HostData = { host: Host; services: { name: string | null; protocol: string | null; listen_ip: string | null; port: number | null }[];
   paths: { root: string; path: string; is_dir: boolean }[]; runs: ScanRun[]; containers: Container[]; apps: AddedApp[]; images: Record<string, ImageSummary>;
   image_updates?: Record<string, { checked_at: string | null }> };
@@ -353,7 +443,8 @@ export function HostDetailPage({ id }: { id: number }) {
       {h.is_demo && <div className="alert warn">DEMO host with fictional data.</div>}
       <Tabs value={t} onChange={setTab} tabs={[
         ["overview", "Overview"], ["assets", <>Assets <span className="num">{h.component_count}</span></>],
-        ["findings", <>Findings <span className="num">{h.open_findings}</span></>], ["fix", "Fixes"], ["reports", "Reports"],
+        ["findings", <>Findings <span className="num">{h.open_findings}</span></>], ["fix", "Fixes"],
+        ["updates", <>Updates {h.pending_updates != null && <span className="num">{h.pending_updates}</span>}</>], ["reports", "Reports"],
       ]} />
       {t === "overview" && <div className="host-grid">
         <section className="card">
@@ -399,6 +490,7 @@ export function HostDetailPage({ id }: { id: number }) {
           <TabPager data={findings.data} onPage={setFPage} /></>
         : <Empty title="No open findings on this host." />) : <Skeleton />)}
       {t === "fix" && <FixPlan hostId={id} />}
+      {t === "updates" && <UpdatesTab host={h} onChange={reload} />}
       {t === "reports" && <>
         <section className="card">
           <div className="card-head"><h2>Software bill of materials</h2>
