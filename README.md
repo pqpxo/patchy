@@ -288,7 +288,7 @@ From agent 1.7, run `sudo patchy-agent` on the host for a menu:
 |_|  /_/ \_\  |_|   \___||_||_|  |_|
 
 patchy-agent 1.7.1 on pi4
-Server: https://patch.example.lan  ·  last report 2 h ago (OK)  ·  Run upgrade: allowed
+Server: https://patchy.example.lan  ·  last report 2 h ago (OK)  ·  Run upgrade: allowed
 
  > 1. Status
    2. Send a report now
