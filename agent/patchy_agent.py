@@ -16,9 +16,16 @@ What it reads (each part can be switched off in the config):
   - Optional, with containers: the packages inside each container image, listed by Syft if it is installed
     next to this script (the installer offers a pinned, checksum-verified copy). Cached per image ID.
   - Optional: names (never contents) of files under directories you list, with depth/count limits
+  - Pending apt updates, from `apt-get -s upgrade` (a simulation: no root, changes nothing), and whether
+    the host is waiting for a reboot
 
 What it never reads or sends: file contents, environment variables, keys, passwords, tokens,
-shell history, or anything under excluded sensitive paths. It never accepts commands from the server.
+shell history, or anything under excluded sensitive paths. It never runs commands from the server.
+
+Upgrades, only if you allowed them at install time: when you press Run upgrade in Patchy, this script
+writes /var/lib/patchy-agent/upgrade-request. A separate root service (patchy-agent-upgrade, written by
+install.sh) notices the file and runs one fixed command, `apt-get update && apt-get upgrade`. It reads
+only the file's timestamp, never its contents, and keeps its log in its own root-owned directory.
 
 Usage:
   patchy_agent.py --dry-run            collect and print the report, send nothing
@@ -26,7 +33,8 @@ Usage:
   patchy_agent.py --sample --send      send the SAMPLE report (to test enrolment end to end)
   patchy_agent.py --check              verify the server URL and credential
   patchy_agent.py                      collect and send (what the systemd timer runs)
-  patchy_agent.py --poll               send a report only if Rescan was pressed in Patchy (polled every 5 min)
+  patchy_agent.py --poll               send a report only if Rescan was pressed in Patchy, and pass on a Run
+                                       upgrade (polled every minute with upgrades allowed, else every 5 min)
 Python 3.8+, standard library only.
 """
 from __future__ import annotations
@@ -52,7 +60,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 DEFAULT_CONFIG = "/etc/patchy-agent/config.json"
 SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_OUTPUT = 64 * 1024
@@ -95,7 +103,7 @@ DEFAULTS = {
     "allow_insecure_http": False,
     "timeout_seconds": 30,
     "collect": {"packages": True, "apps": True, "listening_ports": True, "services": True, "in_use": True,
-                "docker_images": False,
+                "updates": True, "docker_images": False,
                 "image_packages": True, "image_scan": "manual", "version_probes": DEFAULT_PROBES},
     "app_dirs": [],
 }
@@ -107,7 +115,7 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def run_fixed(argv, timeout=10):
+def run_fixed(argv, timeout=10, limit=MAX_OUTPUT):
     """Run an allowlisted command: argument list, no shell, clean env, no stdin, bounded output."""
     exe = shutil.which(argv[0], path=SAFE_PATH)
     if not exe:
@@ -118,7 +126,7 @@ def run_fixed(argv, timeout=10):
                            env={"PATH": SAFE_PATH, "LC_ALL": "C"})
     except (OSError, subprocess.SubprocessError):
         return exe, None
-    return exe, p.stdout[:MAX_OUTPUT].decode("utf-8", "replace")
+    return exe, p.stdout[:limit].decode("utf-8", "replace")
 
 
 def read_text(path, limit=50 * 1024 * 1024):
@@ -508,6 +516,107 @@ def run_lock(state_dir=STATE_DIR):
     return fd
 
 
+# ---------------------------------------------------------------- apt updates and upgrades
+
+UPGRADES_FILE = "/etc/patchy-agent/upgrades"  # "yes" when the installer was told to allow upgrades from Patchy
+UPGRADE_DIR = "/var/lib/patchy-agent-upgrade"  # the root upgrade service's own directory; read-only to us
+UPGRADE_REQUEST = "upgrade-request"  # in STATE_DIR; the root service only looks at its timestamp
+UPGRADE_PENDING = "upgrade-pending.json"  # in STATE_DIR: which of Patchy's requests was handed over, and when
+APT_INST = re.compile(r"^Inst (\S+) (?:\[([^\]]*)\] )?\((\S+) ([^\[]*)")
+APT_HELD = ("The following packages have been kept back", "The following upgrades have been deferred")
+
+
+def upgrades_allowed(path=UPGRADES_FILE):
+    try:
+        return read_text(path, 16).strip() == "yes"
+    except OSError:
+        return False
+
+
+def _apt_lists_at():
+    """Roughly when the package lists were last refreshed (by apt's daily timer, or an upgrade)."""
+    times = [os.path.getmtime(p) for p in ("/var/lib/apt/periodic/update-success-stamp", "/var/cache/apt/pkgcache.bin",
+                                           "/var/lib/apt/lists") if os.path.exists(p)]
+    return datetime.fromtimestamp(max(times), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if times else None
+
+
+def parse_apt_simulation(text):
+    """(packages, held back) from `apt-get -s upgrade` output, in the C locale."""
+    pkgs, held, in_held = [], [], False
+    for line in text.splitlines():
+        mt = APT_INST.match(line)
+        if mt:
+            pkgs.append({"name": mt.group(1), "installed": mt.group(2) or None, "available": mt.group(3),
+                         "security": "security" in mt.group(4).lower()})
+        elif line.startswith(APT_HELD):
+            in_held = True
+        elif in_held and line.startswith(" "):
+            held += line.split()
+        else:
+            in_held = False
+    return pkgs, held
+
+
+def apt_updates():
+    """Pending updates as `apt-get upgrade` would install them, from a simulation: no root, no changes."""
+    exe, text = run_fixed(["apt-get", "-s", "-o", "Debug::NoLocking=1", "upgrade"], timeout=120, limit=4 * 1024 * 1024)
+    if not exe:
+        return None  # not an apt system
+    if text is None:
+        raise RuntimeError("apt-get simulation failed")
+    pkgs, held = parse_apt_simulation(text)
+    try:
+        reboot_pkgs = sorted(set(read_text("/run/reboot-required.pkgs", 64 * 1024).split()))[:200]
+    except OSError:
+        reboot_pkgs = []
+    return {"manager": "apt", "packages": pkgs[:5000], "held_back": held[:1000], "lists_at": _apt_lists_at(),
+            "reboot_required": os.path.exists("/run/reboot-required"), "reboot_packages": reboot_pkgs,
+            "can_upgrade": upgrades_allowed()}
+
+
+def start_upgrade(run_id, state_dir=STATE_DIR):
+    """Hand Patchy's Run upgrade to the root service, which watches the request file. False if this host
+    doesn't allow upgrades (the report that follows tells Patchy so)."""
+    if not upgrades_allowed():
+        return False
+    pending = os.path.join(state_dir, UPGRADE_PENDING)
+    with open(pending + ".tmp", "w", encoding="utf-8") as f:
+        json.dump({"id": int(run_id), "requested_at": now_iso()}, f)
+    os.replace(pending + ".tmp", pending)
+    with open(os.path.join(state_dir, UPGRADE_REQUEST), "w", encoding="utf-8") as f:
+        f.write(f"{int(run_id)}\n")  # closing it after writing is what wakes the root service
+    return True
+
+
+def upgrade_result(state_dir=STATE_DIR, out_dir=UPGRADE_DIR):
+    """The finished upgrade that was handed over and not yet reported, else None (none, or still running)."""
+    try:
+        pending = json.loads(read_text(os.path.join(state_dir, UPGRADE_PENDING), 4096))
+        result = json.loads(read_text(os.path.join(out_dir, "result.json"), 4096))
+        run_id = int(pending["id"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if str(result.get("started_at") or "") < str(pending.get("requested_at") or ""):
+        return None  # an earlier run's result: this one hasn't finished yet
+    try:
+        with open(os.path.join(out_dir, "upgrade.log"), "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - 60000))
+            output = f.read().decode("utf-8", "replace")
+    except OSError:
+        output = ""
+    code = result.get("exit_code")
+    return {"id": run_id, "exit_code": code if isinstance(code, int) else None, "started_at": result.get("started_at"),
+            "finished_at": result.get("finished_at"), "output": output}
+
+
+def upgrade_reported(state_dir=STATE_DIR):
+    try:
+        os.remove(os.path.join(state_dir, UPGRADE_PENDING))
+    except OSError:
+        pass
+
+
 def find_syft():
     """Syft installed next to this script by install.sh, else one on the system PATH."""
     here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "syft")
@@ -731,7 +840,7 @@ def collect(cfg, requested=()):
     report = {"schema": 1, "report_id": str(uuid.uuid4()), "agent_version": VERSION, "generated_at": now_iso(),
               "host": host_info(), "packages": [], "apps": [], "probes": [], "listening": [], "services": [],
               "containers": [], "images": [], "paths": [], "errors": errors, "image_requests_done": [],
-              "in_use": None}
+              "in_use": None, "updates": None, "upgrade_result": upgrade_result()}
     scan_images = bool(col.get("docker_images") and col.get("image_packages", True))
     steps = [("packages", col.get("packages"), lambda: packages(errors, meta)),
              ("apps", col.get("apps"), lambda: added_apps(report["packages"], meta)),
@@ -741,7 +850,8 @@ def collect(cfg, requested=()):
              ("containers", col.get("docker_images"), lambda: docker_containers(errors)),
              ("images", scan_images, lambda: image_packages(report["containers"], errors, requested=requested,
                                                            auto=col.get("image_scan") == "auto", deferred=deferred)),
-             ("probes", bool(col.get("version_probes")), lambda: probes(col.get("version_probes") or [], errors))]
+             ("probes", bool(col.get("version_probes")), lambda: probes(col.get("version_probes") or [], errors)),
+             ("updates", col.get("updates", True), apt_updates)]
     for key, enabled, fn in steps:
         if enabled:
             try:
@@ -792,6 +902,11 @@ def sample_report():
                                   "source_version": None},
                                  {"type": "npm", "name": "lodash", "version": "4.17.20", "purl": "pkg:npm/lodash@4.17.20"}]}],
         "image_requests_done": [],
+        "updates": {"manager": "apt", "packages": [{"name": "libssl3", "installed": "3.0.11-1~deb12u1",
+                                                    "available": "3.0.15-1~deb12u1", "security": True}],
+                    "held_back": [], "lists_at": now_iso(), "reboot_required": False, "reboot_packages": [],
+                    "can_upgrade": False},
+        "upgrade_result": None,
         "paths": [{"root": "/srv/sample-app", "truncated": False,
                                      "entries": [{"path": "/srv/sample-app/app.py", "type": "file"}]}],
         "errors": ["SAMPLE REPORT: synthetic data generated with --sample, not read from a real host."],
@@ -877,7 +992,13 @@ def main(argv=None):
     requested = []
     if a.poll:
         code, body = request(cfg, "GET", "/api/agent/poll")
-        if code != 200 or not body.get("report"):  # nothing wanted, or a server too old to ask
+        if code != 200:
+            return 0
+        refused = False
+        if isinstance(body.get("upgrade"), int):
+            refused = not start_upgrade(body["upgrade"])  # report straight away, so Patchy learns it isn't allowed
+        # A finished upgrade is reported by the run the upgrade service starts; this catches one that was missed.
+        if not (body.get("report") or refused or upgrade_result()):  # nothing wanted, or a server too old to ask
             return 0
         requested = [i for i in body.get("scan_images") or [] if isinstance(i, str)][:100]
     lock = None if a.sample else run_lock()  # released when the process exits
@@ -895,6 +1016,8 @@ def main(argv=None):
         print(f"Could not send the report to Patchy: {getattr(e, 'reason', None) or e}", file=sys.stderr)
         return 1
     print(f"HTTP {code}: {body}")
+    if code == 200 and report.get("upgrade_result"):
+        upgrade_reported()
     return 0 if code == 200 else 1
 
 

@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from . import inuse
+from . import inuse, upgrades
 from .db import utcnow
 from .inventory import sync_components
 from .models import Agent, Host, HostPath, HostService, ScanRun
@@ -127,6 +127,31 @@ class PathListing(_M):
     truncated: bool = False
 
 
+class PendingUpdate(_M):
+    name: S
+    installed: S | None = None
+    available: S
+    security: bool = False
+
+
+class Updates(_M):
+    manager: Literal["apt"]
+    packages: list[PendingUpdate] = Field(default_factory=list, max_length=5000)
+    held_back: list[S] = Field(default_factory=list, max_length=1000)
+    lists_at: S | None = None
+    reboot_required: bool = False
+    reboot_packages: list[S] = Field(default_factory=list, max_length=200)
+    can_upgrade: bool = False
+
+
+class UpgradeResult(_M):
+    id: int
+    exit_code: int | None = None
+    started_at: S | None = None
+    finished_at: S | None = None
+    output: Annotated[str, StringConstraints(max_length=65536)] = ""
+
+
 class Report(_M):
     schema_version: Literal[1] = Field(alias="schema")
     report_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F-]{8,64}$")]
@@ -144,6 +169,8 @@ class Report(_M):
     in_use: list[S] | None = Field(default=None, max_length=50000)  # packages running programs come from (agent 1.5+)
     paths: list[PathListing] = Field(default_factory=list, max_length=20)
     errors: list[Annotated[str, StringConstraints(max_length=500)]] = Field(default_factory=list, max_length=100)
+    updates: Updates | None = None  # pending apt updates (agent 1.6+)
+    upgrade_result: UpgradeResult | None = None  # a finished Run upgrade (agent 1.6+)
 
 
 def os_ecosystem(os: OsInfo, manager: str) -> str | None:
@@ -378,6 +405,7 @@ def ingest(db: Session, agent: Agent, report: Report, ip: str) -> tuple[ScanRun,
         done = set(report.image_requests_done) if report.image_requests_done is not None else set(host.image_scan_requests)
         host.image_scan_requests = [i for i in host.image_scan_requests if i not in done] or None
     track_image_scans(host, report)
+    upgrades.record(db, host, report, now)
 
     agent.last_seen_at, agent.last_ip, agent.agent_version = now, ip, report.agent_version
     run.status = "partial" if report.errors else "succeeded"
