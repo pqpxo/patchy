@@ -164,11 +164,11 @@ def test_scan_requests_go_to_the_agent_and_are_cleared_when_answered(auth_client
     assert auth_client.post(f"/api/hosts/{host.id}/images/scan", json={"image_id": "nginx; rm -rf /"}).status_code == 422
     r = auth_client.post(f"/api/hosts/{host.id}/images/scan", json={"image_id": image_id})
     assert r.status_code == 200 and r.json()["image_scan_requests"] == [image_id]
-    assert client.get("/api/agent/poll", headers=h).json() == {"report": True, "scan_images": [image_id]}
+    assert client.get("/api/agent/poll", headers=h).json() == {"report": True, "scan_images": [image_id], "upgrade": None}
     assert client.post("/api/agent/report", json=_report(), headers=h).status_code == 200  # not answered: stays
     assert client.get("/api/agent/poll", headers=h).json()["scan_images"] == [image_id]
     assert client.post("/api/agent/report", json=_report(image_requests_done=[image_id]), headers=h).status_code == 200
-    assert client.get("/api/agent/poll", headers=h).json() == {"report": False, "scan_images": []}
+    assert client.get("/api/agent/poll", headers=h).json() == {"report": False, "scan_images": [], "upgrade": None}
     auth_client.post(f"/api/hosts/{host.id}/images/scan", json={"image_id": image_id})
     old["report_id"] = _report()["report_id"]
     client.post("/api/agent/report", json=old, headers=h)  # an agent too old to answer clears them, so nothing loops

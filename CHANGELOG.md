@@ -2,6 +2,17 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.23.0 - 2026-11-25
+
+### Added
+- **Updates** tab on each host page: pending apt updates, which are security updates, how many open findings each one fixes, packages apt is keeping back, and whether a reboot is waiting. The hosts list has an optional Updates column (under Columns).
+- **Run upgrade**: runs `apt-get update && apt-get upgrade` on the host and shows apt's output and the result. Off unless you allow it on the host: the installer asks once. Saying yes adds a root service that runs only that command, and only when Patchy asks.
+- Agent 1.6.0 reports pending apt updates (from a simulation that changes nothing) and passes on Run upgrade. On hosts that allow upgrades it checks in every minute instead of every 5.
+
+### Upgrade notes
+- Database migration `0012` only adds a column and a table. Nothing is changed or removed.
+- Update the agent on each host from its Agent card to see pending updates. The installer asks whether to allow Run upgrade; the default is no.
+
 ## 1.22.0 - 2026-11-25
 
 ### Added
