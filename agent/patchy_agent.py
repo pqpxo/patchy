@@ -62,7 +62,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-VERSION = "1.7.0"
+VERSION = "1.7.1"
 DEFAULT_CONFIG = "/etc/patchy-agent/config.json"
 SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_OUTPUT = 64 * 1024
