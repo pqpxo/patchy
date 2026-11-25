@@ -52,6 +52,7 @@ class PasswordChangeIn(In):
 class MeOut(BaseModel):
     username: str
     csrf_token: str
+    demo: str | None = None  # in the demo, the date of its vulnerability data snapshot
 
 
 # ---------- inventory ----------

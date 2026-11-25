@@ -126,11 +126,12 @@ function App() {
   const [palette, setPalette] = useState(false);
   const [counts, setCounts] = useState<Counts>();
   const [alertsPaused, setAlertsPaused] = useState(false);
+  const [demo, setDemo] = useState<string | null>(null); // the public demo's data snapshot date
 
   useEffect(() => {
     setUnauthorisedHandler(() => setUser(null));
-    get<{ username: string; csrf_token: string }>("/api/auth/me")
-      .then((me) => { setCsrf(me.csrf_token); setUser(me.username); })
+    get<{ username: string; csrf_token: string; demo?: string | null }>("/api/auth/me")
+      .then((me) => { setCsrf(me.csrf_token); setUser(me.username); setDemo(me.demo ?? null); })
       .catch(() => setUser(null));
     const key = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette((p) => !p); }
@@ -211,15 +212,22 @@ function App() {
               }}><Icon name={alertsPaused ? "bell-off" : "bell"} /></button>
             <button className="icon-btn rail-toggle" title={prefs.rail ? "Expand sidebar" : "Collapse sidebar"} aria-label="Toggle sidebar width"
               onClick={() => setPrefs({ rail: !prefs.rail })}><Icon name="rail" /></button>
-            <button className="icon-btn" title="Sign out" aria-label="Sign out" onClick={async () => {
+            {!demo && <button className="icon-btn" title="Sign out" aria-label="Sign out" onClick={async () => {
               await post("/api/auth/logout").catch(() => {});
               setUser(null);
               navigate("/");
-            }}><Icon name="out" /></button>
+            }}><Icon name="out" /></button>}
           </div>
         </div>
       </aside>
-      <main id="main" tabIndex={-1}>{route(path)}</main>
+      <main id="main" tabIndex={-1}>
+        {demo && <div className="alert info demo-bar" role="note">
+          <p><b>Demo.</b> The hosts and repositories are made up; the vulnerability data is real and public, from {new Date(demo).toLocaleDateString("en-GB", { dateStyle: "medium" })}.
+            Changes are turned off. Data: <a href="https://osv.dev" target="_blank" rel="noopener noreferrer">OSV.dev</a> (CC-BY 4.0),
+            FIRST EPSS, CISA KEV and endoflife.date. <a href="https://github.com/pqpxo/patchy" target="_blank" rel="noopener noreferrer">Get Patchy on GitHub</a>.</p>
+        </div>}
+        {route(path)}
+      </main>
       {palette && <Palette onClose={() => setPalette(false)} />}
       <Toaster />
     </div>

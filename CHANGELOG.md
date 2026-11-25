@@ -2,6 +2,15 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.21.0 - 2026-11-25
+
+### Added
+- **Public demo**: `docker-compose.demo.yml` runs a read-only Patchy with no sign-in, showing a made-up home lab matched against a bundled snapshot of real, public vulnerability data (OSV.dev, CISA KEV, FIRST EPSS, endoflife.date). It keeps nothing: the database is rebuilt on tmpfs at every start, and it makes no outbound connections.
+- `python -m app.cli demo-build` refreshes the snapshot, and `demo-load` fills an empty database with the demo. A `DEMO_MODE` setting turns on the demo's sign-in and read-only guard; it does nothing on a database the demo didn't make.
+
+### Upgrade notes
+- No migration and nothing changes on a normal install.
+
 ## 1.20.1 - 2026-11-25
 
 ### Fixed
