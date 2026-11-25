@@ -187,6 +187,15 @@ export function Match({ s }: { s: string }) {
   return <span className={`badge match-${s}`} title={m.help}>{m.label}</span>;
 }
 
+/** A fix-by deadline: "in 12 d", "today", or "3 d overdue" in red. */
+export function Due({ iso }: { iso?: string | null }) {
+  if (!iso) return <span className="muted">-</span>;
+  const days = Math.floor((new Date(iso).getTime() - Date.now()) / 864e5);
+  const title = `Fix by ${new Date(iso).toLocaleDateString("en-GB", { dateStyle: "medium" })}`;
+  if (days < 0) return <span className="due-over" title={title}>{-days} d overdue</span>;
+  return <span className={days < 7 ? "due-soon" : "muted"} title={title}>{days === 0 ? "today" : `in ${days} d`}</span>;
+}
+
 export function Status({ s }: { s: string }) {
   return <span className={`badge st-${s}`}>{s.charAt(0).toUpperCase() + s.slice(1).replace("_", " ")}</span>;
 }

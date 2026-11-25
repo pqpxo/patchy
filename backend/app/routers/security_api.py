@@ -12,13 +12,13 @@ from pydantic import ValidationError
 from sqlalchemy import Select, case, func, or_, select
 from sqlalchemy.orm import Session
 
-from .. import __version__, aiprompt, alerts, dependabot, export, fixplan, news, sources, vulns
+from .. import __version__, aiprompt, alerts, deadlines, dependabot, export, fixplan, news, sources, vulns
 from .. import matching as m
 from ..agent_ingest import Report, ingest
 from ..config import settings
 from ..db import get_db, utcnow
 from ..models import Advisory, AppSetting, AuditLog, Component, FeedStatus, Finding, Host, Repository, ScanRun, User
-from ..schemas import (AUTO_STATUSES, AlertDestinationsIn, AlertsIn, AnyFindingStatus, AuditOut, FeedOut, FindingOut, FindingStatusIn, NewsFeedsIn, Page,
+from ..schemas import (AUTO_STATUSES, AlertDestinationsIn, AlertsIn, AnyFindingStatus, DeadlinesIn, AuditOut, FeedOut, FindingOut, FindingStatusIn, NewsFeedsIn, Page,
                        RefreshIn, ScanRunOut, SourceIn)
 from ..security import audit, authenticate_agent, client_ip, limiter, require_user
 from ..worker import enqueue
@@ -41,10 +41,10 @@ def finding_query(severity: list[Literal["critical", "high", "medium", "low", "n
                   match_status: list[Literal["confirmed", "possible", "unknown_version"]] = Query(None),
                   kev: bool | None = None, host_id: int | None = None, repository_id: int | None = None,
                   component_id: int | None = None, q: str | None = Query(None, max_length=200),
-                  include_stale_matches: bool = False,
+                  include_stale_matches: bool = False, overdue: bool = False,
                   sort: Literal["priority", "severity", "epss", "cvss", "published", "component", "location",
                                 "match", "status", "detected", "exposure"] = "severity",
-                  order: Literal["asc", "desc"] = "desc") -> Select:
+                  order: Literal["asc", "desc"] = "desc", db: Session = Depends(get_db)) -> Select:
     """The findings list's filters and order, shared by the list and its CSV export."""
     query = (select(Finding).join(Advisory).join(Component).outerjoin(Host, Component.host_id == Host.id)
              .outerjoin(Repository, Component.repository_id == Repository.id))
@@ -56,6 +56,8 @@ def finding_query(severity: list[Literal["critical", "high", "medium", "low", "n
         query = query.where(Finding.match_status.in_(match_status))
     if kev is not None:
         query = query.where(Advisory.kev.is_(kev))
+    if overdue:  # past the fix-by deadline and still open
+        query = query.where(Finding.status.in_(OPEN), deadlines.overdue(deadlines.config(db)))
     for col, val in ((Component.host_id, host_id), (Component.repository_id, repository_id),
                      (Finding.component_id, component_id)):
         if val is not None:
@@ -233,6 +235,9 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(require_user)) ->
     recent = db.scalars(select(ScanRun).where(ScanRun.kind != "feed").order_by(ScanRun.id.desc()).limit(8)).all()
     return {
         "severity": by_sev, "match_status": by_match, "status": by_status, "kev_open": kev,
+        "overdue": db.scalar(select(func.count()).select_from(Finding).join(Advisory).where(
+            *active, Finding.match_status != "unknown_version", deadlines.overdue(deadlines.config(db)))),
+        "time_to_fix": deadlines.time_to_fix(db),
         "top_assets": [{"id": r[0], "name": r[1], "version": r[2], "location": r[3] or (f"{r[4]}/{r[5]}" if r[4] else None),
                         "open": r[6], "max_severity": rank_name.get(r[7], "unknown")} for r in top],
         "coverage": coverage, "feeds": feeds_status(db), "feed_stale": vulns.feed_is_stale(db),
@@ -300,6 +305,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(require_user))
         "alerts": {"destinations": alerts.destinations(alerts.values(db)), "fields": alerts.fields(db),
                    "events": alerts.config(db), "status": alerts.status(db),
                    "silent_choices": list(alerts.SILENT_CHOICES)},
+        "deadlines": deadlines.config(db),
         "coverage": {
             "local_version_comparison": sorted(m.ECOSYSTEM_COMPARATORS),
             "osv_queried": sorted(m.OSV_ECOSYSTEMS),
@@ -341,6 +347,16 @@ def update_alerts(body: AlertsIn, request: Request, db: Session = Depends(get_db
     changes = body.model_dump(exclude_none=True)
     result = alerts.save(db, changes)
     audit(db, user.username, "settings.alerts", "settings", "alerts", changes, client_ip(request))
+    db.commit()
+    return result
+
+
+@router.put("/settings/deadlines")
+def update_deadlines(body: DeadlinesIn, request: Request, db: Session = Depends(get_db),
+                     user: User = Depends(require_user)) -> dict:
+    changes = body.model_dump(exclude_none=True)
+    result = deadlines.save(db, changes)
+    audit(db, user.username, "settings.deadlines", "settings", "deadlines", changes, client_ip(request))
     db.commit()
     return result
 

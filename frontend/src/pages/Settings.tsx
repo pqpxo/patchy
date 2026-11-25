@@ -10,12 +10,12 @@ interface SettingsData {
   repo_limits: Record<string, number>; hour_choices: number[]; version: string;
   worker: { version: string; started_at: string } | null;
   coverage: { local_version_comparison: string[]; osv_queried: string[]; nvd_products?: string; inventory_only: string[] };
-  alerts: AlertsData; news: NewsSettings;
+  alerts: AlertsData; news: NewsSettings; deadlines: Deadlines;
 }
 
 interface NewsSettings { feeds: string[]; default: string[]; custom: boolean }
 
-interface AlertEvents { kev: boolean; critical: boolean; eol: boolean; silent_hours: number; paused: boolean }
+interface AlertEvents { kev: boolean; critical: boolean; overdue: boolean; eol: boolean; silent_hours: number; paused: boolean }
 interface AlertField { env: string; secret: boolean; source: "env" | "ui" | null; value: string | null }
 interface AlertsData {
   destinations: { webhook: boolean; ntfy: boolean; pushover: boolean; email: boolean }; events: AlertEvents; silent_choices: number[];
@@ -24,7 +24,8 @@ interface AlertsData {
 }
 
 const SECTIONS: [string, string][] = [
-  ["appearance", "Appearance"], ["sources", "Sources and schedule"], ["alerts", "Alerts"], ["risks", "Accepted risk"],
+  ["appearance", "Appearance"], ["sources", "Sources and schedule"], ["deadlines", "Fix-by deadlines"], ["alerts", "Alerts"],
+  ["risks", "Accepted risk"],
   ["integrations", "Home Assistant"], ["system", "System"],
   ["account", "Account"], ["audit", "Audit log"], ["about", "About"],
 ];
@@ -271,6 +272,7 @@ function Alerts({ a, onChange }: { a: AlertsData; onChange: () => void }) {
   const events: [keyof AlertEvents, string, string][] = [
     ["kev", "Known exploited vulnerability", "A finding whose advisory is on the CISA KEV list, including possible matches."],
     ["critical", "Critical vulnerability", "A confirmed finding rated critical."],
+    ["overdue", "Past the fix-by deadline", "An open finding the day it passes its deadline. Findings already overdue when you turn this on aren't sent."],
     ["eol", "End of life", "An operating system, runtime or server within 90 days of end of life, or past it."],
   ];
   return (
@@ -359,6 +361,7 @@ const HA_SENSORS: [string, string, string][] = [
   ["critical", "Patchy critical", "mdi:alert-octagon"],
   ["high", "Patchy high", "mdi:alert"],
   ["kev", "Patchy known exploited", "mdi:skull-crossbones"],
+  ["overdue", "Patchy overdue", "mdi:calendar-alert"],
   ["network_exposed", "Patchy network exposed", "mdi:lan"],
   ["eol", "Patchy end of life", "mdi:calendar-remove"],
   ["hosts_not_reporting", "Patchy hosts not reporting", "mdi:lan-disconnect"],
@@ -442,6 +445,38 @@ function Integrations() {
         <p className="small muted">Each sensor keeps history, so you can graph it or trigger automations, for example when <code>sensor.patchy_known_exploited</code> goes above 0.</p>
       </section>
     </>
+  );
+}
+
+type Deadlines = Record<"critical" | "high" | "medium" | "low", number>;
+
+function DeadlinesCard({ d, onSaved }: { d: Deadlines; onSaved: () => void }) {
+  const [form, setForm] = useState(d);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try { await put("/api/settings/deadlines", form); toast("Deadlines saved."); onSaved(); }
+    catch (e) { toast(errText(e), "bad"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <section className="card">
+      <h2>Fix-by deadlines</h2>
+      <p className="small muted">How many days a finding may stay open, counted from when Patchy first found it. Overdue findings are counted on the Overview,
+        can be filtered on Vulnerabilities, and can send an alert. Known-exploited findings get the critical deadline, counted from when CISA listed them
+        if that's later. 0 turns a deadline off.</p>
+      <form onSubmit={(e) => { e.preventDefault(); save(); }}>
+        <div className="grid fields">
+          {(["critical", "high", "medium", "low"] as const).map((k) => (
+            <Field key={k} label={k.charAt(0).toUpperCase() + k.slice(1)}>
+              <span className="row"><input type="number" min={0} max={365} required value={form[k]} style={{ width: "6em" }}
+                onChange={(e) => setForm({ ...form, [k]: Number(e.target.value) })} /><span className="muted small">days</span></span>
+            </Field>
+          ))}
+        </div>
+        <button className="btn primary small" disabled={busy}>Save</button>
+      </form>
+    </section>
   );
 }
 
@@ -628,6 +663,7 @@ export default function SettingsPage() {
           </div>}
           {t === "sources" && (s.data ? <><Sources choices={s.data.hour_choices} /><NewsFeeds n={s.data.news} onSaved={s.reload} /></> : <Skeleton />)}
           {t === "alerts" && (s.data ? <Alerts a={s.data.alerts} onChange={s.reload} /> : <Skeleton />)}
+          {t === "deadlines" && (s.data ? <DeadlinesCard d={s.data.deadlines} onSaved={s.reload} /> : <Skeleton />)}
           {t === "risks" && <Risks />}
           {t === "integrations" && <Integrations />}
           {t === "system" && (s.data ? <System s={s.data} /> : <Skeleton />)}
