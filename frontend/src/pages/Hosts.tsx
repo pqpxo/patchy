@@ -247,6 +247,8 @@ function AgentHelp() {
       <h3>Rotate or revoke</h3>
       <p><strong>Rotate</strong> issues a new token and stops the old one at once; paste the new token into <code>/etc/patchy-agent/token</code>. <strong>Revoke</strong> stops the agent reporting.</p>
       <h3>Useful commands on the host</h3>
+      <p>Open the agent's menu (agent 1.7 or later) to see its status, change what it collects, replace the token, update or remove it:</p>
+      <CodeBlock code="sudo patchy-agent" />
       <p>Send a report now:</p><CodeBlock code="sudo systemctl start patchy-agent" />
       <p>Read the logs:</p><CodeBlock code="journalctl -u patchy-agent" />
       <p>Change what is collected:</p><CodeBlock code="sudo nano /etc/patchy-agent/config.json" />

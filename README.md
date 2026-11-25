@@ -276,13 +276,49 @@ Let Patchy's Run upgrade button run 'apt-get update && apt-get upgrade' on this 
 - A request the host hasn't picked up in a day, or hasn't finished in 2 hours, is marked failed. Every request is in the audit log.
 - To change your answer, run `sudo rm -f /etc/patchy-agent/upgrades`, then re-run `sudo sh install.sh` in the agent folder.
 
+### Agent menu
+
+From agent 1.7, run `sudo patchy-agent` on the host for a menu:
+
+```text
+ ___    _    _____   ___  _  _ __   __
+| _ \  /_\  |_   _| / __|| || |\ \ / /
+|  _/ / _ \   | |  | (__ | __ | \ V /
+|_|  /_/ \_\  |_|   \___||_||_|  |_|
+
+patchy-agent 1.7.0 on pi4
+Server: https://patch.example.lan  ·  last report 2 h ago (OK)  ·  Run upgrade: allowed
+
+ > 1. Status
+   2. Send a report now
+   3. What it collects
+   4. Run upgrade
+   5. Server and token
+   6. Logs
+   7. Update the agent
+   8. Remove the agent
+   9. Quit
+
+Up/Down to move, Enter to choose, q or Esc to go back
+```
+
+- **Status**: the last report (when, whether Patchy accepted it, and counts of packages, ports, containers and pending updates), any part that failed to collect, the next scheduled report and check-in, and the Run upgrade setting.
+- **Send a report now**, or **preview** one: collected by the `patchy-agent` account, as the service does, and nothing is sent.
+- **What it collects**: switch each part on or off, and add or remove app directories (the usual limits apply). Switching Docker containers on asks first, because the docker group is root-equivalent.
+- **Run upgrade**: allow or stop it, and read the last upgrade's output.
+- **Server and token**: test the connection (with a plain explanation of DNS, certificate and token problems), replace the token after a Rotate, change the server address, or set a CA file. A new token or address is saved only once Patchy accepts it.
+- **Logs**, **Update the agent** (from the version this Patchy bundles) and **Remove the agent**.
+
+> [!NOTE]
+> The menu runs as root because the config and token are root-only. Reports are still collected by the unprivileged `patchy-agent` account. Settings that change services re-run the installer, which stays in `/usr/local/lib/patchy-agent`. `patchy-agent --check` and the other options still work from the same command.
+
 ### Rotate, upgrade, remove
 
 - **Rotate:** on the host page choose **Rotate**. The old token stops working at once. Put the new one in `/etc/patchy-agent/token`.
 - **Revoke:** choose **Revoke**. Reports are rejected with HTTP 401.
-- **Upgrade:** when a newer agent ships, the host page shows an **Update** badge and the command to run. It downloads the files and re-runs `sudo sh install.sh`, keeping the config and token.
+- **Upgrade:** when a newer agent ships, the host page shows an **Update** badge and the command to run. It downloads the files and re-runs `sudo sh install.sh`, keeping the config and token. From agent 1.7, **Update the agent** in `sudo patchy-agent` does the same.
 - **Rescan:** the **Rescan** button re-checks findings at once and asks the agent (1.2 or later) for a fresh report, which arrives within about 5 minutes. If a report is already being collected, the agent lets that one answer the Rescan instead of starting a second scan.
-- **Remove:** `sudo sh uninstall.sh`, then revoke the credential in Patchy.
+- **Remove:** `sudo sh uninstall.sh` (or **Remove the agent** in `sudo patchy-agent`), then revoke the credential in Patchy.
 - **Logs:** `journalctl -u patchy-agent`. **Run now:** `sudo systemctl start patchy-agent`.
 - The **?** button on the host page's Agent card has a short guide to all of this.
 
