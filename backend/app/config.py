@@ -18,6 +18,9 @@ class Settings:
         self.session_hours = _int("SESSION_HOURS", 12)
         # Public demo: everyone is the demo user and every change is refused. See app/demo.py.
         self.demo_mode = _bool("DEMO_MODE", False)
+        # A page to send visitors to when a proxy or CDN in front of Patchy rate-limits them. http(s) only.
+        blocked = os.getenv("BLOCKED_URL", "").strip()
+        self.blocked_url = blocked if blocked.startswith(("https://", "http://")) else ""
         # Secrets: never returned by the API, never logged.
         self.github_token = os.getenv("GITHUB_TOKEN", "").strip()
         self.nvd_api_key = os.getenv("NVD_API_KEY", "").strip()

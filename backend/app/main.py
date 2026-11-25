@@ -1,10 +1,11 @@
+import html
 import logging
 import os
 import pathlib
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__
@@ -82,4 +83,7 @@ def spa(path: str):
     index = STATIC / "index.html"
     if not index.exists():
         return JSONResponse({"detail": "Frontend not built. Run `npm run build` in frontend/."}, status_code=503)
+    if settings.blocked_url:  # in the page itself, as the API is what gets blocked
+        meta = f'<meta name="blocked-url" content="{html.escape(settings.blocked_url)}">'
+        return HTMLResponse(index.read_text(encoding="utf-8").replace("<head>", "<head>" + meta, 1))
     return FileResponse(index)
