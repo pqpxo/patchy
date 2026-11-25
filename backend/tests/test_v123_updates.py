@@ -148,7 +148,7 @@ def test_demo_shows_updates_and_a_past_upgrade(client, db, monkeypatch):
     monkeypatch.setattr(settings, "demo_mode", True)  # signs the visitor in as the demo user
     hosts = {h.name: h for h in db.scalars(select(Host))}
     pi, home = hosts["pi-dns"], hosts["homeserver"]
-    assert pi.agent.agent_version == "1.6.0" and not client.get(f"/api/hosts/{pi.id}").json()["host"]["agent_outdated"]
+    assert pi.agent.agent_version == agent_mod.VERSION and not client.get(f"/api/hosts/{pi.id}").json()["host"]["agent_outdated"]
     d = client.get(f"/api/hosts/{pi.id}/updates").json()
     assert d["can_upgrade"] and d["fixes"] > 0 and d["runs"][0]["status"] == "succeeded"
     assert home.updates["reboot_required"] and not home.updates["can_upgrade"]

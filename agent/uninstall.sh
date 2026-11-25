@@ -9,6 +9,7 @@ rm -f /etc/systemd/system/patchy-agent.service /etc/systemd/system/patchy-agent.
       /etc/systemd/system/patchy-agent-upgrade.service /etc/systemd/system/patchy-agent-upgrade.path
 rm -rf /etc/systemd/system/patchy-agent.service.d
 systemctl daemon-reload
+rm -f /usr/local/bin/patchy-agent
 rm -rf /usr/local/lib/patchy-agent /etc/patchy-agent /var/lib/patchy-agent /var/lib/patchy-agent-upgrade
 id patchy-agent >/dev/null 2>&1 && userdel patchy-agent || true
 echo "Patchy agent removed. Now revoke its credential in Patchy (Hosts > host > Revoke)."

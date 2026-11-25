@@ -140,9 +140,9 @@ def _hosts(phase: int) -> list[dict]:
     } if new else {}
     out = []
     for name, ip, kernel, arch, os_info, pkgs, listening, running, ctrs, images in reports:
-        out.append({"name": name, "version": "1.3.0" if name == "old-wiki" else "1.6.0", "report": {
+        out.append({"name": name, "version": "1.3.0" if name == "old-wiki" else "1.7.0", "report": {
             "schema": 1, "report_id": str(uuid.UUID(int=random.Random(f"{name}{phase}").getrandbits(128))),
-            "agent_version": "1.3.0" if name == "old-wiki" else "1.6.0", "generated_at": utcnow().isoformat(),
+            "agent_version": "1.3.0" if name == "old-wiki" else "1.7.0", "generated_at": utcnow().isoformat(),
             "updates": updates.get(name),
             "host": {"hostname": name, "ips": [ip], "kernel": kernel, "arch": arch, "os": os_info},
             "packages": [{**p, "arch": "arm64" if arch == "aarch64" else "amd64"} for p in pkgs],

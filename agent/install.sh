@@ -44,7 +44,20 @@ command -v systemctl >/dev/null || { echo "systemd is required for the timer (yo
 id "$USER_NAME" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "$USER_NAME"
 
 install -d -m 0755 "$LIB"
-install -m 0755 "$HERE/patchy_agent.py" "$LIB/patchy_agent.py"
+# Keep the installer next to the agent, so the menu (sudo patchy-agent) can re-run it to change settings.
+if [ "$HERE" != "$LIB" ]; then
+  install -m 0755 "$HERE/patchy_agent.py" "$LIB/patchy_agent.py"
+  for f in install.sh uninstall.sh config.example.json; do
+    if [ -f "$HERE/$f" ]; then install -m 0644 "$HERE/$f" "$LIB/$f"; fi
+  done
+fi
+cat > /usr/local/bin/patchy-agent <<EOF
+#!/bin/sh
+# sudo patchy-agent opens the agent's menu. Anything else is passed to the agent, eg: patchy-agent --check
+[ \$# -gt 0 ] || set -- --menu
+exec /usr/bin/env python3 $LIB/patchy_agent.py --config $ETC/config.json "\$@"
+EOF
+chmod 0755 /usr/local/bin/patchy-agent
 install -d -m 0750 -o root -g "$USER_NAME" "$ETC"
 
 if [ ! -f "$ETC/config.json" ]; then
@@ -244,3 +257,4 @@ runuser -u "$USER_NAME" -- python3 "$LIB/patchy_agent.py" --config "$ETC/config.
 systemctl start --no-block patchy-agent.service
 echo "Sending the first report in the background. With container image scanning, the first one can take several minutes."
 echo "Follow it with: journalctl -u patchy-agent -f"
+echo "Change settings, send a report or update the agent any time with: sudo patchy-agent"
