@@ -331,7 +331,8 @@ function UpdatesTab({ host, onChange }: { host: Host; onChange: () => void }) {
   const u = data.updates;
   if (!u) return <Empty title="No update information for this host.">
     {!host.agent ? "Enrol an agent on this host to see its pending updates."
-      : agentAtLeast(host.agent.agent_version, 1, 6) ? <>Pending updates are listed for apt hosts (Debian, Ubuntu, Raspberry Pi OS). This host doesn't use apt, or <code>updates</code> is turned off in the agent config.</>
+      : agentAtLeast(host.agent.agent_version, 1, 6) ? <>Pending updates are listed for apt hosts (Debian, Ubuntu, Raspberry Pi OS). This host doesn't use apt,
+        {" "}<code>updates</code> is turned off in the agent config, or apt couldn't list them (the latest report on the Reports tab says if so).</>
       : "Agents from 1.6 list pending apt updates. Update the agent from the Agent card on the Overview tab."}
   </Empty>;
   const pkgs = data.packages;
@@ -354,6 +355,8 @@ function UpdatesTab({ host, onChange }: { host: Host; onChange: () => void }) {
       </div>
       <p className="small muted">As of the last report, <When iso={u.reported_at} />. Package lists refreshed <When iso={u.lists_at} />;
         apt's daily timer keeps them current, and Run upgrade refreshes them first.</p>
+      {u.failed_at && <div className="alert warn"><p><strong>Out of date.</strong> The report <When iso={u.failed_at} /> couldn't list pending updates,
+        so this list is from <When iso={u.reported_at} />. To see why, run <code>apt-get -s upgrade</code> on the host.</p></div>}
       {WAITING(last) && <div className="alert info run" role="status" aria-live="polite"><span className="spin" aria-hidden="true" />
         <span className="grow">{last!.status === "queued"
           ? <>Upgrade requested by {last!.requested_by} <When iso={last!.requested_at} />. Waiting for the agent, which checks in every minute.</>

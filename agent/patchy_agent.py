@@ -115,8 +115,9 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def run_fixed(argv, timeout=10, limit=MAX_OUTPUT):
-    """Run an allowlisted command: argument list, no shell, clean env, no stdin, bounded output."""
+def run_fixed(argv, timeout=10, limit=MAX_OUTPUT, ok_only=False):
+    """Run an allowlisted command: argument list, no shell, clean env, no stdin, bounded output.
+    With ok_only, a non-zero exit counts as a failure (output None) rather than as output to parse."""
     exe = shutil.which(argv[0], path=SAFE_PATH)
     if not exe:
         return None, None
@@ -125,6 +126,8 @@ def run_fixed(argv, timeout=10, limit=MAX_OUTPUT):
                            stderr=subprocess.STDOUT, timeout=timeout, check=False,
                            env={"PATH": SAFE_PATH, "LC_ALL": "C"})
     except (OSError, subprocess.SubprocessError):
+        return exe, None
+    if ok_only and p.returncode != 0:
         return exe, None
     return exe, p.stdout[:limit].decode("utf-8", "replace")
 
@@ -559,10 +562,11 @@ def parse_apt_simulation(text):
 
 def apt_updates():
     """Pending updates as `apt-get upgrade` would install them, from a simulation: no root, no changes."""
-    exe, text = run_fixed(["apt-get", "-s", "-o", "Debug::NoLocking=1", "upgrade"], timeout=120, limit=4 * 1024 * 1024)
+    exe, text = run_fixed(["apt-get", "-s", "-o", "Debug::NoLocking=1", "upgrade"], timeout=120, limit=4 * 1024 * 1024,
+                          ok_only=True)
     if not exe:
         return None  # not an apt system
-    if text is None:
+    if text is None:  # e.g. unmet dependencies: never report that as "nothing to install"
         raise RuntimeError("apt-get simulation failed")
     pkgs, held = parse_apt_simulation(text)
     try:
