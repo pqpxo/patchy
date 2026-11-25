@@ -306,7 +306,7 @@ Up/Down to move, Enter to choose, q or Esc to go back
 - **Send a report now**, or **preview** one: collected by the `patchy-agent` account, as the service does, and nothing is sent.
 - **What it collects**: switch each part on or off, and add or remove app directories (the usual limits apply). Switching Docker containers on asks first, because the docker group is root-equivalent.
 - **Run upgrade**: allow or stop it, and read the last upgrade's output.
-- **Server and token**: test the connection (with a plain explanation of DNS, certificate and token problems), replace the token after a Rotate, change the server address, or set a CA file. A new token or address is saved only once Patchy accepts it.
+- **Server and token**: test the connection (with a plain explanation of DNS, certificate and token problems), replace the token after a Rotate, change the server address, or set a CA file (copied to `/etc/patchy-agent/ca.pem`, where the service can read it). A new token, address or CA file is saved only once Patchy accepts it.
 - **Logs**, **Update the agent** (from the version this Patchy bundles) and **Remove the agent**.
 
 > [!NOTE]
