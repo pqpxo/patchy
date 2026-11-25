@@ -36,6 +36,7 @@
 - [Themes and views](#themes-and-views)
 - [How matching works](#how-matching-works)
 - [API](#api)
+- [Public demo](#public-demo)
 - [Development and tests](#development-and-tests)
 - [Backups](#backups)
 - [Troubleshooting](#troubleshooting)
@@ -117,6 +118,7 @@ All settings are environment variables in `.env`. See [.env.example](.env.exampl
 | `POSTGRES_PASSWORD` | none | Required. Alphanumeric (it goes into a URL) |
 | `COOKIE_SECURE` | `true` | `false` only for plain-HTTP LAN access |
 | `SESSION_HOURS` | `12` | Session lifetime |
+| `DEMO_MODE` | `false` | Public demo only, see [Public demo](#public-demo). Never set it on a real install |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Reverse proxy IP(s) trusted for `X-Forwarded-For` |
 | `GITHUB_TOKEN` | empty | Private repos and 5000 requests/h. Never sent to the browser |
 | `OSV_ENABLED` / `KEV_ENABLED` / `NVD_ENABLED` | `true` / `true` / `false` | Source switches (defaults; Settings can override) |
@@ -479,6 +481,31 @@ JSON over `/api`. The OpenAPI schema is at `/api/openapi.json`, and Swagger UI i
 | Integrations | `GET /api/integrations/summary` (session or read-only bearer token), `GET/POST /api/settings/tokens`, `DELETE /api/settings/tokens/{id}` |
 
 Lists take `page`, `page_size` (max 200), `sort` and `order` (`asc`/`desc`) and return `{items, total, page, page_size}`. Writes from the browser need the `X-CSRF-Token` header returned by `/api/auth/me`. Times are UTC ISO 8601. Re-sending an agent report with the same `report_id` returns the original scan, and a repeated scan request returns the queued one.
+
+<br>
+
+## Public demo
+
+A read-only Patchy anyone can click around in, for a blog post or a README link. It shows a made-up home lab (a Raspberry Pi running DNS, an Ubuntu Docker host, an end-of-life Debian 10 VM and two GitHub repositories) matched against a bundled snapshot of real, public vulnerability data.
+
+```bash
+docker compose -f docker-compose.demo.yml up -d --build
+```
+
+Then point your reverse proxy at port `8081` (set `DEMO_PORT` to change it). It needs no `.env`, no database server and no internet access.
+
+- **No sign-in.** Every visitor is the `demo` user and every change is refused, before any route runs. Sign out is hidden.
+- **Nothing is kept.** The database is a SQLite file on tmpfs, rebuilt on every start in about 20 seconds. Restart it whenever you like.
+- **No outbound connections.** There's no worker, so no feeds, alerts, news or Dependabot checks. The audit log, which visitors can see, never records their IP addresses.
+- **Real history.** The lab goes through Patchy's own ingestion and matching twice, about two months ago and today after some upgrades. So findings are found, fixed, overdue, set aside as minor or as old kernels, acknowledged, ruled out and risk-accepted as they would be for real.
+
+> [!NOTE]
+> The demo's vulnerability data comes from [OSV.dev](https://osv.dev) (CC-BY 4.0, with each source's own licence), CISA KEV, FIRST EPSS and endoflife.date, and the demo's banner credits them. The snapshot is `backend/app/demo_snapshot.json.gz` (about 0.5 MB).
+
+To refresh the snapshot with today's data (needs internet), run `python -m app.cli demo-build` in `backend/`, then rebuild the image. To change the lab, edit `backend/app/demo.py` and rebuild the snapshot.
+
+> [!WARNING]
+> Don't run the demo with your real `.env` or database. `demo-load` refuses any database that already has users or hosts, and demo sign-in only works in a database it made, but keep the two apart anyway.
 
 <br>
 

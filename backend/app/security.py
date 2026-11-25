@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import get_db, utcnow
-from .models import Agent, AuditLog, User, UserSession
+from .models import Agent, AppSetting, AuditLog, User, UserSession
 
 SESSION_COOKIE = "patchy_session"
 _SCRYPT = {"n": 2**15, "r": 8, "p": 1, "maxmem": 64 * 1024 * 1024}
@@ -91,6 +91,11 @@ def create_session(db: Session, user: User) -> tuple[str, UserSession]:
 
 
 def current_session(request: Request, db: Session = Depends(get_db)) -> UserSession:
+    if settings.demo_mode and db.get(AppSetting, "demo"):  # only a database `demo-load` made: everyone is the demo
+        # user, and the read-only guard in main.py refuses every change
+        s = db.scalar(select(UserSession).join(User).where(User.username == "demo"))
+        if s:
+            return s
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         raise HTTPException(401, "Not signed in.")
@@ -134,6 +139,8 @@ def authenticate_agent(db: Session, request: Request) -> Agent:
 def audit(db: Session, actor: str, action: str, target_type: str | None = None,
           target_id=None, detail: dict | None = None, ip: str | None = None) -> None:
     """Record an action. Callers must never pass secret values in detail."""
+    if settings.demo_mode:  # the audit log is public in the demo: never show one visitor's address to another
+        ip = None
     db.add(AuditLog(actor=actor, action=action, target_type=target_type,
                     target_id=None if target_id is None else str(target_id), detail=detail, ip=ip))
 

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db, utcnow
-from ..models import User, UserSession
+from ..models import AppSetting, User, UserSession
 from ..schemas import LoginIn, MeOut, PasswordChangeIn
 from ..security import (SESSION_COOKIE, audit, client_ip, create_session, current_session, hash_password,
                         limiter, validate_new_password, verify_password)
@@ -41,8 +41,9 @@ def logout(response: Response, s: UserSession = Depends(current_session), db: Se
 
 
 @router.get("/me", response_model=MeOut)
-def me(s: UserSession = Depends(current_session)):
-    return MeOut(username=s.user.username, csrf_token=s.csrf_token)
+def me(s: UserSession = Depends(current_session), db: Session = Depends(get_db)):
+    demo = db.get(AppSetting, "demo") if settings.demo_mode else None
+    return MeOut(username=s.user.username, csrf_token=s.csrf_token, demo=demo.value.get("snapshot") if demo else None)
 
 
 @router.post("/password", status_code=204)

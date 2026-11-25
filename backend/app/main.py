@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__
+from .config import settings
 from .routers import auth, integrations, inventory, risks, security_api
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -42,6 +43,14 @@ async def security_headers(request: Request, call_next):
     if request.url.path.startswith("/api/"):
         response.headers.setdefault("Cache-Control", "no-store")
     return response
+
+
+@app.middleware("http")
+async def demo_read_only(request: Request, call_next):
+    """The public demo refuses every change, before any route runs."""
+    if settings.demo_mode and request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
+        return JSONResponse({"detail": "This is a demo, so changes are turned off."}, status_code=403)
+    return await call_next(request)
 
 
 @app.exception_handler(RequestValidationError)
