@@ -83,7 +83,7 @@ export interface Finding {
   repository_id: number | null; repository_label: string | null; image?: string | null; exposure?: string | null; exposure_note?: string | null;
   advisory: Advisory; match_status: string;
   evidence: string; affected_ranges: string[]; fixed_versions: string[]; remediation: string;
-  currently_matching: boolean; status: string; status_note: string | null; vendor_priority?: string | null; status_changed_at: string;
+  currently_matching: boolean; due_at?: string | null; status: string; status_note: string | null; vendor_priority?: string | null; status_changed_at: string;
   status_changed_by: string; first_detected_at: string; last_checked_at: string;
 }
 

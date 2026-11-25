@@ -205,6 +205,7 @@ class FindingOut(Out):
     fixed_versions: list
     remediation: str
     currently_matching: bool
+    due_at: datetime | None = None  # fix-by deadline, while the finding is open
     status: str
     status_note: str | None
     vendor_priority: str | None = None
@@ -343,9 +344,18 @@ class AuditOut(Out):
 class AlertsIn(In):
     kev: bool | None = None
     critical: bool | None = None
+    overdue: bool | None = None
     eol: bool | None = None
     silent_hours: Literal[0, 6, 12, 24, 48, 72] | None = None
     paused: bool | None = None
+
+
+class DeadlinesIn(In):
+    """Days each severity may stay open. 0 turns that deadline off."""
+    critical: int | None = Field(None, ge=0, le=365)
+    high: int | None = Field(None, ge=0, le=365)
+    medium: int | None = Field(None, ge=0, le=365)
+    low: int | None = Field(None, ge=0, le=365)
 
 
 _URL = r"^(https?://\S+)?$"  # empty clears

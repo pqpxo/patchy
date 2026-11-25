@@ -2,6 +2,17 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.18.0 - 2026-11-25
+
+### Added
+- **Fix-by deadlines**: days per severity (critical 7, high 30, medium 90, low 180 by default), set in **Settings > Fix-by deadlines**. Known-exploited findings get the critical deadline, counted from when CISA listed them if that's later. 0 turns a deadline off.
+- A due date on every open finding (a new *Due* column and on the finding page), an **Overdue** count on the Overview and filter on Vulnerabilities, and `overdue` in the Home Assistant summary with a ready-made sensor.
+- A **Past the fix-by deadline** alert, off by default. Findings already overdue when it's turned on aren't sent.
+- On the Overview: findings fixed in the last 90 days, the typical time to fix, and the share fixed by their deadline.
+
+### Upgrade notes
+- No migration. Deadlines are counted from when each finding was first found, so long-standing findings may show as overdue straight away.
+
 ## 1.17.1 - 2026-11-25
 
 ### Changed

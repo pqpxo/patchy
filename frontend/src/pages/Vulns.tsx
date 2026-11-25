@@ -5,7 +5,7 @@ import { MATCH_STATUS, SEVERITIES, fmtDate, pct, safeUrl } from "../format";
 import { usePrefs } from "../prefs";
 import { FindingTable } from "../tables";
 import {
-  Empty, Epss, ErrorBox, Field, KV, Kev, Link, Match, Reach, PageHead, Pager, Sev, Skeleton, Status, When, errText, toast, useLoad,
+  Due, Empty, Epss, ErrorBox, Field, KV, Kev, Link, Match, Reach, PageHead, Pager, Sev, Skeleton, Status, When, errText, toast, useLoad,
   useQueryParam, useSort,
 } from "../ui";
 
@@ -14,6 +14,7 @@ export function VulnsPage() {
   const [status, setStatus] = useQueryParam("status");
   const [match, setMatch] = useQueryParam("match_status");
   const [kev, setKev] = useQueryParam("kev");
+  const [overdue, setOverdue] = useQueryParam("overdue");
   const [hostId] = useQueryParam("host_id");
   const [q, setQ] = useQueryParam("q");
   const [page, setPage] = useQueryParam("page");
@@ -22,12 +23,13 @@ export function VulnsPage() {
   const [search, setSearch] = useState(q);
   const filters = {
     severity: severity ? [severity] : undefined, status: status ? [status] : ["open", "acknowledged"],
-    match_status: match ? [match] : undefined, kev: kev || undefined, host_id: hostId || undefined, q,
+    match_status: match ? [match] : undefined, kev: kev || undefined, overdue: overdue || undefined,
+    host_id: hostId || undefined, q,
     sort: sort.sort, order: sort.order,
   };
   const { data, error, loading, reload } = useLoad(() => get<Page<Finding>>("/api/findings", {
     ...filters, page: page || 1, page_size: pageSize,
-  }), [severity, status, match, kev, hostId, q, sort.sort, sort.order, page, pageSize]);
+  }), [severity, status, match, kev, overdue, hostId, q, sort.sort, sort.order, page, pageSize]);
   const feeds = useLoad(() => get<Feed[]>("/api/feeds"), []);
   const stale = feeds.data?.find((f) => f.source === "osv")?.stale;
 
@@ -49,6 +51,7 @@ export function VulnsPage() {
         <option value="">All match types</option>{Object.entries(MATCH_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
       </select>
       <label className="check"><input type="checkbox" checked={kev === "true"} onChange={(e) => setKev(e.target.checked ? "true" : "")} /> Known exploited</label>
+      <label className="check"><input type="checkbox" checked={overdue === "true"} onChange={(e) => setOverdue(e.target.checked ? "true" : "")} /> Overdue</label>
     </>
   );
   return (
@@ -153,7 +156,8 @@ export function FindingDetailPage({ id }: { id: number }) {
       <section className="card">
         <h2>Status</h2>
         <p className="small muted">Last changed <When iso={f.status_changed_at} /> by {f.status_changed_by}. {f.status_note}
-          {f.vendor_priority && <> Distro rating: <strong>{f.vendor_priority}</strong>.</>}</p>
+          {f.vendor_priority && <> Distro rating: <strong>{f.vendor_priority}</strong>.</>}
+          {f.due_at && <> Fix by <strong>{new Date(f.due_at).toLocaleDateString("en-GB", { dateStyle: "medium" })}</strong> (<Due iso={f.due_at} />).</>}</p>
         <form className="inline-form" onSubmit={async (e) => {
           e.preventDefault();
           try {
