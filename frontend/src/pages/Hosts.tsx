@@ -339,7 +339,6 @@ export function HostDetailPage({ id }: { id: number }) {
         meta={<><Exposure e={h.exposure} size="wide" /><Eol s={h.os_eol_state} info={h.os_eol} /><AgentBadge a={h.agent} outdated={h.agent_outdated} />
           <span className="small muted">reported <When iso={h.last_report_at} /></span></>}
         actions={<>
-          <a className="btn" href={`/api/sbom?host_id=${h.id}`} download title="CycloneDX SBOM of everything on this host, with open vulnerabilities">SBOM</a>
           {canRescan && <button className="btn" onClick={rescan} disabled={!!h.rescan_requested_at}
             title="Re-check findings now and ask the agent for a fresh report"><Icon name="refresh" size={14} /> Rescan</button>}
           <DangerButton question={`Delete host ${h.name} and all its assets and findings?`}
@@ -400,13 +399,21 @@ export function HostDetailPage({ id }: { id: number }) {
           <TabPager data={findings.data} onPage={setFPage} /></>
         : <Empty title="No open findings on this host." />) : <Skeleton />)}
       {t === "fix" && <FixPlan hostId={id} />}
-      {t === "reports" && (data.runs.length === 0 ? <Empty title="No reports yet." /> : (
-        <div className="table-wrap"><table className="table compact"><thead><tr><th>Report</th><th>Status</th><th>Packages</th><th>When</th></tr></thead>
-          <tbody>{data.runs.map((r) => (
-            <tr key={r.id}><td><Link to={`/scans/${r.id}`}>#{r.id}</Link></td><td><Status s={r.status} /></td>
-              <td className="num">{r.summary?.packages ?? "-"}</td><td><When iso={r.finished_at ?? r.created_at} /></td></tr>
-          ))}</tbody></table></div>
-      ))}
+      {t === "reports" && <>
+        <section className="card">
+          <div className="card-head"><h2>Software bill of materials</h2>
+            <a className="btn small" href={`/api/sbom?host_id=${h.id}`} download><Icon name="download" size={14} /> Download SBOM</a></div>
+          <p className="small muted">CycloneDX JSON of every package, image and asset on this host, with its open vulnerabilities.
+            Use it with tools such as Dependency-Track, or keep it as a record of what was installed.</p>
+        </section>
+        {data.runs.length === 0 ? <Empty title="No reports yet." /> : (
+          <div className="table-wrap"><table className="table compact"><thead><tr><th>Report</th><th>Status</th><th>Packages</th><th>When</th></tr></thead>
+            <tbody>{data.runs.map((r) => (
+              <tr key={r.id}><td><Link to={`/scans/${r.id}`}>#{r.id}</Link></td><td><Status s={r.status} /></td>
+                <td className="num">{r.summary?.packages ?? "-"}</td><td><When iso={r.finished_at ?? r.created_at} /></td></tr>
+            ))}</tbody></table></div>
+        )}
+      </>}
     </>
   );
 }
