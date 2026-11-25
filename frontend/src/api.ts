@@ -111,6 +111,20 @@ export interface Host {
   os_id: string | null; os_eol_state: string | null; os_eol: EolInfo | null; agent_outdated: boolean; exposure: Exposure | null;
   rescan_requested_at: string | null; image_scan_requests?: string[] | null;
   image_scans?: Record<string, { image_id: string; scanned_at: string; requested?: string }> | null;
+  pending_updates: number | null; security_updates: number; reboot_required: boolean; can_upgrade: boolean;
+}
+
+export interface PendingUpdate { name: string; installed: string | null; available: string; security: boolean; fixes: number }
+
+export interface UpgradeRun {
+  id: number; status: "queued" | "sent" | "succeeded" | "failed"; requested_by: string; requested_at: string;
+  sent_at: string | null; started_at: string | null; finished_at: string | null; exit_code: number | null; output: string | null; note: string | null;
+}
+
+export interface HostUpdates {
+  updates: { manager: string; held_back: string[]; lists_at: string | null; reboot_required: boolean; reboot_packages: string[];
+    can_upgrade: boolean; reported_at: string } | null;
+  packages: PendingUpdate[]; fixes: number; can_upgrade: boolean; runs: UpgradeRun[];
 }
 
 export interface Container {

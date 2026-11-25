@@ -53,6 +53,7 @@
 - **Inventory**: languages, libraries, web servers, databases, OS packages, container images and other software, with versions, hosts, IPs, ports, paths, repositories and notes. Search, filter, edit and delete.
 - **GitHub discovery**: reads manifests and lockfiles through the GitHub API. Nothing is cloned, built or executed.
 - **Linux agent**: one read-only Python script on a systemd timer. It sends reports outbound over HTTPS using a revocable per-host token, lists Docker containers and software added to the base OS, can scan the packages inside container images, and can be asked to rescan from the host page.
+- **Pending updates**: each apt host's Updates tab lists what `apt-get upgrade` would install, which are security updates, how many open findings each one fixes, and whether a reboot is waiting. If you allow it on the host, **Run upgrade** runs `apt-get update && apt-get upgrade` there and shows apt's output.
 - **Vulnerabilities**: OSV matching with evidence, NVD product (CPE) matching for servers and runtimes, CISA KEV flags, FIRST EPSS exploit likelihood, NVD scores, fixed versions and remediation taken from the advisory.
 - **End of life**: support dates from endoflife.date for runtimes, frameworks, servers and host operating systems.
 - **Security news**: the 5 newest posts from security news feeds (RSS or Atom) on the Overview. The Hacker News by default; choose your own under **Settings > Sources and schedule** (or `NEWS_FEEDS`).
@@ -199,7 +200,7 @@ A lockfile in the same folder takes precedence over its manifest's looser constr
 
 ## Linux agent
 
-The agent is one Python 3.8+ file using only the standard library ([agent/patchy_agent.py](agent/patchy_agent.py)). It runs every 6 hours from a systemd timer as an unprivileged `patchy-agent` user and POSTs a JSON report to Patchy. A second timer asks Patchy every 5 minutes whether **Rescan** was pressed, and if so sends the same report early. It never listens on a port and never runs commands from the server.
+The agent is one Python 3.8+ file using only the standard library ([agent/patchy_agent.py](agent/patchy_agent.py)). It runs every 6 hours from a systemd timer as an unprivileged `patchy-agent` user and POSTs a JSON report to Patchy. A second timer asks Patchy every 5 minutes whether **Rescan** was pressed, and if so sends the same report early. It never listens on a port and never runs commands from the server. The one exception is **Run upgrade**, which is off unless you allow it on the host (see [Pending updates and Run upgrade](#pending-updates-and-run-upgrade)).
 
 ### Enrol a host
 
@@ -234,6 +235,7 @@ The installer prompts for the token (input hidden, kept out of shell history), w
 | Docker containers: name, image, state, ports, mount locations | Docker API socket (needs the docker group, see below). Never env or labels | `collect.docker_images` (off) |
 | Packages inside container images | Syft, if installed (see below), reading local images through the Docker socket | `collect.image_packages` (with containers) |
 | File and folder **names** under chosen app directories | `os.scandir`, no symlink following, depth and count limits | `app_dirs` (empty) |
+| Pending apt updates, and whether a reboot is waiting | `apt-get -s upgrade` (a simulation that changes nothing), `/run/reboot-required` | `collect.updates` |
 
 It never reads file contents, environment variables, keys, passwords, tokens or shell history. Sensitive names (`.ssh`, `.env`, `*.key`, `*.pem`, `id_*`, `shadow`, `.git`, ...) are skipped by the agent and dropped again by the server. Broad roots such as `/`, `/home`, `/etc` and `/var` are refused. Commands run from a fixed allowlist as argument lists, with no shell, a clean environment, a timeout and capped output.
 
@@ -254,6 +256,25 @@ It never reads file contents, environment variables, keys, passwords, tokens or 
 - Each image is scanned once and cached by image ID in `/var/lib/patchy-agent`, so later reports cost nothing until an image changes. A scan needs temporary disk space in `/var/tmp` about the size of the image, and on a Raspberry Pi a large image can take a few minutes. The service runs at low CPU and disk priority, and memory above 1 GB is reclaimed from it first (`MemoryHigh=1G`), most of which is file cache from reading images. New scans stop starting after 10 minutes per run and the rest follow in the next reports. `journalctl -u patchy-agent -f` shows which image is being scanned. To turn it off, set `"image_packages": false`.
 - To add Syft after saying no, run `sudo rm -f /usr/local/lib/patchy-agent/syft.declined`, then re-run `sudo sh install.sh` in the agent folder.
 - Because it runs unprivileged, it can't see the processes behind other users' sockets, and those show as "unknown". That is deliberate.
+
+### Pending updates and Run upgrade
+
+The host page's **Updates** tab (agent 1.6 or later, apt hosts) lists what `apt-get upgrade` would install, marks security updates, counts the open findings each one fixes, and lists anything apt is keeping back. The package lists are as fresh as apt's own daily refresh.
+
+**Run upgrade** is off unless you allow it. The installer asks once, on hosts with apt:
+
+```text
+Let Patchy's Run upgrade button run 'apt-get update && apt-get upgrade' on this host? [y/N]
+```
+
+> [!IMPORTANT]
+> Saying yes adds a small root service, `patchy-agent-upgrade`, that runs one fixed command: `apt-get update && apt-get upgrade -y`, keeping your changed config files. Patchy can't make it run anything else. The agent stays unprivileged: it only touches a request file, and the root service reads nothing but that file's timestamp. Its output stays in `/var/lib/patchy-agent-upgrade`.
+
+- Pressing **Run upgrade** queues a request. The agent checks in every minute on hosts that allow upgrades (instead of every 5) and passes it on. When apt finishes, the agent reports straight away, so the tab shows the result, apt's output and the new list of pending updates.
+- It never reboots. When a reboot is waiting, the tab says so and for which packages.
+- Packages apt keeps back are left alone, as `apt-get upgrade` does. Install them on the host with `sudo apt-get dist-upgrade` after checking what it would remove.
+- A request the host hasn't picked up in a day, or hasn't finished in 2 hours, is marked failed. Every request is in the audit log.
+- To change your answer, run `sudo rm -f /etc/patchy-agent/upgrades`, then re-run `sudo sh install.sh` in the agent folder.
 
 ### Rotate, upgrade, remove
 
