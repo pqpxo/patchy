@@ -36,6 +36,10 @@ def test_accepted_risk_rules(auth_client, db, host):
     f = db.query(Finding).filter_by(advisory_id="DEBIAN-CVE-2023-1").one()
     assert "Not reachable" in f.status_note and f.status_changed_by == f"rule:{r1['id']}"
     assert auth_client.post(f"/api/findings/{f.id}/status", json={"status": "open"}).status_code == 409
+    r = auth_client.post(f"/api/findings/{f.id}/status", json={"status": "risk_accepted", "note": "Reviewed again"})
+    assert r.status_code == 200 and r.json()["status_changed_by"] == f"rule:{r1['id']}"  # still tied to its rule
+    other_f = db.query(Finding).filter_by(component_id=other.id).one()
+    assert auth_client.post(f"/api/findings/{other_f.id}/status", json={"status": "risk_accepted"}).status_code == 422
     assert [x["findings"] for x in auth_client.get("/api/risks").json()] == [1, 1]
 
     # Revoking reopens; an expired rule reopens on the next check.
@@ -47,5 +51,5 @@ def test_accepted_risk_rules(auth_client, db, host):
     assert risk.apply(db)["risk_released"] == 1
     db.commit()
     assert {f.status for f in db.query(Finding)} == {"open"}
-    actions = [a["action"] for a in auth_client.get("/api/audit").json()["items"][:3]]
-    assert actions == ["risk.revoke", "risk.accept", "risk.accept"]
+    actions = [a["action"] for a in auth_client.get("/api/audit").json()["items"][:4]]
+    assert actions == ["risk.revoke", "finding.status", "risk.accept", "risk.accept"]
