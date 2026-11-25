@@ -401,7 +401,7 @@ def test_alert(request: Request, db: Session = Depends(get_db), user: User = Dep
 @router.post("/alerts/digest")
 def send_digest_now(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)) -> dict:
     """Send the weekly digest now, to see what it looks like. It counts as this week's."""
-    limiter.check(f"alert-test:{user.id}", 5, 300)
+    limiter.check(f"alert-digest:{user.id}", 5, 300)
     if not any(alerts.destinations(alerts.values(db)).values()):
         raise HTTPException(409, "No alert destination is set. Add one above or in .env.")
     results = alerts.send_digest(db)
