@@ -11,6 +11,7 @@ All notable changes to Patchy. Versions follow [semantic versioning](https://sem
 
 ### Upgrade notes
 - Database migration `0012` only adds a column and a table. Nothing is changed or removed.
+- If apt fails to list updates on a host (for example, unmet dependencies), the Updates tab keeps the last list and marks it out of date instead of showing "Up to date".
 - Update the agent on each host from its Agent card to see pending updates. The installer asks whether to allow Run upgrade; the default is no.
 
 ## 1.22.0 - 2026-11-25

@@ -121,6 +121,28 @@ def test_a_host_that_says_no_fails_the_request_and_stale_ones_expire(auth_client
     assert auth_client.post(f"/api/hosts/{host.id}/upgrade").status_code == 202  # the stale one no longer blocks
 
 
+def test_a_failed_apt_check_keeps_the_last_list_and_old_requests_are_never_handed_out(auth_client, client, host, db,
+                                                                                      monkeypatch):
+    monkeypatch.setattr(agent_mod, "run_fixed", lambda *a, **k: ("/usr/bin/apt-get", None))
+    try:
+        agent_mod.apt_updates()
+        raise AssertionError("a failed simulation must not look like no updates")
+    except RuntimeError:
+        pass
+    token = _enroll(auth_client, host.id)
+    _send(client, token, updates=_updates())
+    _send(client, token, updates=None, errors=["updates: RuntimeError"])
+    d = auth_client.get(f"/api/hosts/{host.id}/updates").json()
+    assert len(d["packages"]) == 2 and d["updates"]["failed_at"]  # still shown, marked out of date
+    _send(client, token, updates=None)  # no error: updates turned off, or not an apt host
+    assert auth_client.get(f"/api/hosts/{host.id}/updates").json()["updates"] is None
+    _send(client, token, updates=_updates())
+    db.add(UpgradeRun(host_id=host.id, status="queued", requested_by="admin", requested_at=utcnow() - timedelta(days=2)))
+    db.commit()
+    poll = client.get("/api/agent/poll", headers={"Authorization": f"Bearer {token}"}).json()
+    assert poll["upgrade"] is None  # expired at check-in, not only when someone opens the page
+
+
 def test_demo_shows_updates_and_a_past_upgrade(client, db, monkeypatch):
     demo.load(db)
     monkeypatch.setattr(settings, "demo_mode", True)  # signs the visitor in as the demo user
