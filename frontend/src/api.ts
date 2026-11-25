@@ -123,7 +123,7 @@ export interface UpgradeRun {
 
 export interface HostUpdates {
   updates: { manager: string; held_back: string[]; lists_at: string | null; reboot_required: boolean; reboot_packages: string[];
-    can_upgrade: boolean; reported_at: string } | null;
+    can_upgrade: boolean; reported_at: string; failed_at?: string } | null;
   packages: PendingUpdate[]; fixes: number; can_upgrade: boolean; runs: UpgradeRun[];
 }
 

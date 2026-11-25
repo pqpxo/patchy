@@ -39,6 +39,7 @@ def hand_out(db: Session, host: Host) -> int | None:
     """At an agent check-in: the queued upgrade to pass on, if this host allows them."""
     if not can_upgrade(host):
         return None
+    expire(db, host.id)  # never hand out a request that has already timed out
     run = db.scalar(select(UpgradeRun).where(UpgradeRun.host_id == host.id, UpgradeRun.status == "queued")
                     .order_by(UpgradeRun.id))
     if run:
@@ -55,7 +56,12 @@ def _when(s: str | None) -> datetime | None:
 
 def record(db: Session, host: Host, report, now: datetime) -> None:
     """Store a report's pending updates and any upgrade result it carries."""
-    host.updates = {**report.updates.model_dump(), "reported_at": now.isoformat()} if report.updates else None
+    if report.updates:
+        host.updates = {**report.updates.model_dump(), "reported_at": now.isoformat()}
+    elif host.updates and any(e.startswith("updates:") for e in report.errors):
+        host.updates = {**host.updates, "failed_at": now.isoformat()}  # keep the last list, marked out of date
+    else:
+        host.updates = None  # not an apt host, or update checks turned off
     r = report.upgrade_result
     run = db.get(UpgradeRun, r.id) if r else None
     if run and run.host_id == host.id and run.output is None:  # a late result still beats "no result"

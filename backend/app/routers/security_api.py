@@ -454,7 +454,7 @@ def list_audit(db: Session = Depends(get_db), _: User = Depends(require_user), a
 def agent_ping(request: Request, db: Session = Depends(get_db)) -> dict:
     limiter.check(f"agent:{client_ip(request)}", 60, 60)
     agent = authenticate_agent(db, request)
-    return {"ok": True, "host": agent.host.name}
+    return {"ok": True, "host": agent.host.name, "agent_version": bundled_agent_version()}  # the menu offers updates
 
 
 @agent_router.get("/poll")
