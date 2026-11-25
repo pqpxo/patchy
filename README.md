@@ -54,7 +54,7 @@
 - **Fixes**: open findings grouped into the fewest upgrade steps per host, repository and manifest, with a copy-paste command where it's safe to give one.
 - **Exposure ranking**: findings in software that listens on the network, or in a container that publishes a port, rank above ones nothing can reach.
 - **Trend**: open findings over the last 90 days on the Overview, with the change over 30 days. Hover for each day's critical and high counts.
-- **Export**: findings as CSV (with the current filters) from Vulnerabilities or a Findings tab, and a CycloneDX 1.5 SBOM with open vulnerabilities for a host, a container image or a repository. Every export is audit-logged.
+- **Export**: findings as CSV (with the current filters) from Vulnerabilities or a Findings tab, and a CycloneDX 1.5 SBOM with open vulnerabilities for a host (on its Reports tab), a container image or a repository. Every export is audit-logged.
 - **Newer images** (optional, off by default): flags containers whose tag now points at a newer build on Docker Hub, GHCR, Quay or another public registry.
 - **Home Assistant sensors**: read-only API tokens and a summary endpoint, with ready-made `rest:` sensors for open, critical, known-exploited and network-exposed findings, end of life, hosts not reporting and newer images.
 - **GitHub Dependabot**: cross-checks each repository's Dependabot alerts against Patchy's own findings.
