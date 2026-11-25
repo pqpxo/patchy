@@ -15,12 +15,12 @@ interface SettingsData {
 
 interface NewsSettings { feeds: string[]; default: string[]; custom: boolean }
 
-interface AlertEvents { kev: boolean; critical: boolean; overdue: boolean; eol: boolean; silent_hours: number; paused: boolean }
+interface AlertEvents { kev: boolean; critical: boolean; overdue: boolean; eol: boolean; silent_hours: number; paused: boolean; digest: boolean }
 interface AlertField { env: string; secret: boolean; source: "env" | "ui" | null; value: string | null }
 interface AlertsData {
   destinations: { webhook: boolean; ntfy: boolean; pushover: boolean; email: boolean }; events: AlertEvents; silent_choices: number[];
   fields: Record<string, AlertField>;
-  status: { last_sent_at?: string; last_attempt_at?: string; last_title?: string; last_error?: string | null; baseline_at?: string } | null;
+  status: { last_sent_at?: string; last_attempt_at?: string; last_title?: string; last_error?: string | null; baseline_at?: string; digest_sent_at?: string } | null;
 }
 
 const SECTIONS: [string, string][] = [
@@ -258,12 +258,12 @@ function Alerts({ a, onChange }: { a: AlertsData; onChange: () => void }) {
     catch (e) { toast(errText(e), "bad"); }
     finally { setBusy(false); }
   };
-  const test = async () => {
+  const test = async (what: "test" | "digest") => {
     setBusy(true);
     try {
-      const r = await post<{ results: Record<string, string | null> }>("/api/alerts/test");
+      const r = await post<{ results: Record<string, string | null> }>(`/api/alerts/${what}`);
       const bad = Object.entries(r.results).filter(([, e]) => e);
-      toast(bad.length ? `Not sent: ${bad.map(([d, e]) => `${d} (${e})`).join(", ")}` : "Test alert sent.", bad.length ? "bad" : undefined);
+      toast(bad.length ? `Not sent: ${bad.map(([d, e]) => `${d} (${e})`).join(", ")}` : what === "test" ? "Test alert sent." : "Digest sent.", bad.length ? "bad" : undefined);
       onChange();
     } catch (e) { toast(errText(e), "bad"); }
     finally { setBusy(false); }
@@ -280,7 +280,7 @@ function Alerts({ a, onChange }: { a: AlertsData; onChange: () => void }) {
       <section className="card">
         <div className="card-head">
           <h2>Where alerts go</h2>
-          <button className="btn small" disabled={!any || busy} onClick={test}>Send test</button>
+          <button className="btn small" disabled={!any || busy} onClick={() => test("test")}>Send test</button>
         </div>
         <p className="small muted">Every destination that's set up gets every alert. Passwords, tokens and webhook URLs are stored on the server and never shown again once saved.
           Anything set in <code>.env</code> takes priority and is locked here.</p>
@@ -319,6 +319,20 @@ function Alerts({ a, onChange }: { a: AlertsData; onChange: () => void }) {
             {a.silent_choices.map((h) => <option key={h} value={h}>{h ? `After ${h} hours` : "Off"}</option>)}
           </select>
         </div>
+      </section>
+      <section className="card">
+        <div className="card-head">
+          <h2>Weekly digest</h2>
+          <button className="btn small" disabled={!any || busy} onClick={() => test("digest")}
+            title="Send this week's digest now, to see what it looks like">Send now</button>
+        </div>
+        <div className="setting-row">
+          <div><div className="label">Send a weekly digest</div><div className="help">Every Monday at 08:00 UTC, one message to the same destinations: open findings by severity,
+            known exploited, overdue, what was found and fixed that week, and the hosts with most to fix. Sent even when nothing changed.
+            If one is due when you turn it on, it goes out within 5 minutes.</div></div>
+          <Switch on={!!ev.digest} disabled={busy} label="Send a weekly digest" onChange={(v) => save({ digest: v })} />
+        </div>
+        {a.status?.digest_sent_at && <p className="small">Last digest <When iso={a.status.digest_sent_at} />.</p>}
       </section>
     </>
   );

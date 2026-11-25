@@ -351,6 +351,7 @@ class AlertsIn(In):
     eol: bool | None = None
     silent_hours: Literal[0, 6, 12, 24, 48, 72] | None = None
     paused: bool | None = None
+    digest: bool | None = None
 
 
 class DeadlinesIn(In):

@@ -12,11 +12,11 @@ import logging
 import os
 import smtplib
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 
 import httpx
-from sqlalchemy import and_, false, or_, select
+from sqlalchemy import and_, case, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from . import deadlines
@@ -25,7 +25,8 @@ from .models import Advisory, Agent, AlertSent, AppSetting, Component, Finding, 
 
 log = logging.getLogger("patchy.alerts")
 SILENT_CHOICES = (0, 6, 12, 24, 48, 72)  # 0 = off
-DEFAULTS = {"kev": True, "critical": True, "overdue": False, "eol": True, "silent_hours": 24, "paused": False}
+DEFAULTS = {"kev": True, "critical": True, "overdue": False, "eol": True, "silent_hours": 24, "paused": False,
+            "digest": False}
 HEADINGS = {"kev": "Known exploited (CISA KEV)", "critical": "Critical", "overdue": "Past the fix-by deadline",
             "silent": "Hosts not reporting", "eol": "End of life"}
 PER_GROUP = 10
@@ -51,7 +52,7 @@ FIELDS = {
 @dataclass
 class Item:
     key: str
-    kind: str  # kev|critical|overdue|silent|eol
+    kind: str  # kev|critical|overdue|silent|eol, or digest for a host in the weekly digest
     text: str
     path: str  # page in Patchy
 
@@ -318,3 +319,82 @@ def run(db: Session) -> int:
         db.merge(AppSetting(key="alerts_status", value={**(status(db) or {}), "baseline_at": utcnow().isoformat()}))
     db.commit()
     return sent
+
+
+# ---------------------------------------------------------------- weekly digest
+
+DIGEST_DAY, DIGEST_HOUR = 0, 8  # Monday, 08:00 UTC
+
+
+def digest_due(db: Session, now: datetime | None = None) -> bool:
+    """True from Monday 08:00 UTC until that week's digest has gone out."""
+    now = now or utcnow()
+    slot = (now - timedelta(days=(now.weekday() - DIGEST_DAY) % 7)).replace(hour=DIGEST_HOUR, minute=0, second=0,
+                                                                            microsecond=0)
+    if slot > now:
+        slot -= timedelta(days=7)
+    last = (status(db) or {}).get("digest_sent_at")
+    return not last or datetime.fromisoformat(last) < slot
+
+
+def digest(db: Session, patchy_url: str = "") -> tuple[str, str, list[Item]]:
+    """The week in one message: what's open, what came and went, and the hosts with most to fix."""
+    week = utcnow() - timedelta(days=7)
+    active = (Finding.status.in_(("open", "acknowledged")), Finding.currently_matching.is_(True),
+              Finding.match_status != "unknown_version")
+
+    def count(*where) -> int:
+        return db.scalar(select(func.count()).select_from(Finding).join(Advisory, Finding.advisory_id == Advisory.id)
+                         .where(*active, *where)) or 0
+    sev = dict(db.execute(select(Advisory.severity, func.count()).join(Finding, Finding.advisory_id == Advisory.id)
+                          .where(*active).group_by(Advisory.severity)).all())
+    total, new = sum(sev.values()), count(Finding.first_detected_at >= week)
+    fixed = deadlines.time_to_fix(db, 7)
+    crit, n = func.sum(case((Advisory.severity == "critical", 1), else_=0)).label("crit"), func.count().label("n")
+    hosts = db.execute(select(Host.id, Host.name, n, crit).select_from(Finding)
+                       .join(Advisory, Finding.advisory_id == Advisory.id).join(Component, Finding.component_id == Component.id)
+                       .join(Host, Component.host_id == Host.id).where(*active)
+                       .group_by(Host.id, Host.name).order_by(crit.desc(), n.desc()).limit(5)).all()
+
+    parts = ", ".join(f"{sev[s]:,} {s}" for s in ("critical", "high", "medium", "low") if sev.get(s))
+    week_line = f"This week: {new:,} new and still open, {fixed['fixed']:,} fixed"
+    if fixed["median_days"] is not None:
+        m = fixed["median_days"]
+        week_line += ", typically within a day" if m < 1 else f", typically after {m:g} day{'' if m == 1 else 's'}"
+    if fixed["on_time_pct"] is not None:
+        week_line += f", {fixed['on_time_pct']}% by their deadline"
+    overdue = count(deadlines.overdue(deadlines.config(db)))
+    lines = [f"Open: {total:,}" + (f" ({parts})" if parts else ""),
+             f"Known exploited: {count(Advisory.kev.is_(True)):,}. Overdue: {overdue:,}.",
+             week_line + "."]
+    items = [Item(f"digest:host:{hid}", "digest", f"{name}: {c:,} open" + (f", {cr:,} critical" if cr else ""),
+                  f"/hosts/{hid}") for hid, name, c, cr in hosts]
+    if items:
+        lines += ["", "Most to fix:"] + [f"- {i.text}" for i in items]
+    if patchy_url:
+        lines += ["", patchy_url]
+    return f"Patchy weekly: {total:,} open, {new:,} new, {fixed['fixed']:,} fixed", "\n".join(lines), items
+
+
+def send_digest(db: Session) -> dict[str, str | None]:
+    """Send the digest now to every destination. It counts as this week's unless every destination failed."""
+    v = values(db)
+    title, message, items = digest(db, v["patchy_url"])
+    results = send(title, message, items, v)
+    record(db, title, results)
+    if not all(results.values()):
+        db.merge(AppSetting(key="alerts_status", value={**(status(db) or {}), "digest_sent_at": utcnow().isoformat()}))
+    return results
+
+
+def run_digest(db: Session) -> bool:
+    """The worker's weekly check. True if a digest went out."""
+    cfg = config(db)
+    if not cfg["digest"] or cfg["paused"] or not any(destinations(values(db)).values()) or not digest_due(db):
+        return False
+    results = send_digest(db)
+    db.commit()
+    if all(results.values()):  # every destination failed: try again at the next check
+        log.warning("weekly digest not sent: %s", results)
+        return False
+    return True

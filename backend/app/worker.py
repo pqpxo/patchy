@@ -112,6 +112,8 @@ def main() -> None:
                     db.commit()
                     if n := alerts.run(db):
                         log.info("sent an alert covering %s item(s)", n)
+                    if alerts.run_digest(db):
+                        log.info("sent the weekly digest")
                 except Exception:  # an alert problem must never stop scans
                     db.rollback()
                     log.exception("alert check failed")
