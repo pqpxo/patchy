@@ -265,7 +265,7 @@ main#main:focus { outline: none; }
 .st-acknowledged, .st-partial { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
 .st-resolved, .st-succeeded { color: var(--good); border-color: color-mix(in srgb, var(--good) 50%, transparent); }
 .st-false_positive, .st-queued { color: var(--ink-3); }
-.st-minor { color: var(--ink-3); border-style: dashed; }
+.st-minor, .st-not_booted { color: var(--ink-3); border-style: dashed; }
 .due-over { color: var(--bad); font-weight: 600; white-space: nowrap; }
 .due-soon { color: var(--warn); white-space: nowrap; }
 .st-risk_accepted { color: var(--ink-2); border-color: var(--rule-3); }

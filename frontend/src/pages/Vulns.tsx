@@ -15,6 +15,7 @@ export function VulnsPage() {
   const [match, setMatch] = useQueryParam("match_status");
   const [kev, setKev] = useQueryParam("kev");
   const [overdue, setOverdue] = useQueryParam("overdue");
+  const [inUse, setInUse] = useQueryParam("in_use");
   const [hostId] = useQueryParam("host_id");
   const [q, setQ] = useQueryParam("q");
   const [page, setPage] = useQueryParam("page");
@@ -24,12 +25,13 @@ export function VulnsPage() {
   const filters = {
     severity: severity ? [severity] : undefined, status: status ? [status] : ["open", "acknowledged"],
     match_status: match ? [match] : undefined, kev: kev || undefined, overdue: overdue || undefined,
+    in_use: inUse || undefined,
     host_id: hostId || undefined, q,
     sort: sort.sort, order: sort.order,
   };
   const { data, error, loading, reload } = useLoad(() => get<Page<Finding>>("/api/findings", {
     ...filters, page: page || 1, page_size: pageSize,
-  }), [severity, status, match, kev, overdue, hostId, q, sort.sort, sort.order, page, pageSize]);
+  }), [severity, status, match, kev, overdue, inUse, hostId, q, sort.sort, sort.order, page, pageSize]);
   const feeds = useLoad(() => get<Feed[]>("/api/feeds"), []);
   const stale = feeds.data?.find((f) => f.source === "osv")?.stale;
 
@@ -46,6 +48,11 @@ export function VulnsPage() {
         <option value="">Open + acknowledged</option><option value="open">Open</option><option value="acknowledged">Acknowledged</option>
         <option value="resolved">Resolved</option><option value="false_positive">False positive</option>
         <option value="minor">Minor (distro rating)</option><option value="risk_accepted">Risk accepted</option>
+        <option value="not_booted">Not booted (old kernel)</option>
+      </select>
+      <select aria-label="Running" value={inUse} onChange={(e) => setInUse(e.target.value)}
+        title="Whether a running program comes from the package. Needs agent 1.5 or later.">
+        <option value="">Running or not</option><option value="true">Running</option><option value="false">Not running</option>
       </select>
       <select aria-label="Match" value={match} onChange={(e) => setMatch(e.target.value)}>
         <option value="">All match types</option>{Object.entries(MATCH_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
@@ -111,7 +118,7 @@ export function FindingDetailPage({ id }: { id: number }) {
   return (
     <>
       <PageHead title={a.id} crumbs={[["Vulnerabilities", "/vulnerabilities"]]} sub={a.summary}
-        meta={<><Sev s={a.severity} /><Kev on={a.kev} /><Reach e={f.exposure} note={f.exposure_note} /><Match s={f.match_status} /><Status s={f.status} />
+        meta={<><Sev s={a.severity} /><Kev on={a.kev} /><Reach e={f.exposure} note={f.exposure_note} inUse={f.in_use} /><Match s={f.match_status} /><Status s={f.status} />
           {a.epss != null && <Epss v={a.epss} p={a.epss_percentile} />}</>} />
       {a.source === "demo" && <div className="alert warn">DEMO advisory. Fictional, for trying out the interface only.</div>}
       {!f.currently_matching && <div className="alert">This finding no longer matches the current inventory (last checked <When iso={f.last_checked_at} />).</div>}
@@ -171,6 +178,7 @@ export function FindingDetailPage({ id }: { id: number }) {
               <option value="resolved">Resolved</option><option value="false_positive">False positive</option>
               {f.status === "minor" && <option value="minor" disabled>Minor (set by Patchy)</option>}
               {f.status === "risk_accepted" && <option value="risk_accepted" disabled>Risk accepted (by a rule)</option>}
+              {f.status === "not_booted" && <option value="not_booted" disabled>Not booted (set by Patchy)</option>}
             </select>
           </Field>
           <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} placeholder="Why?" size={40} /></Field>

@@ -9,7 +9,7 @@ from .models import Component, ComponentObservation, ComponentPath, ScanRun
 
 FIELDS = ("name", "component_type", "vendor", "ecosystem", "version", "version_status", "version_spec",
           "source_package", "source_version", "listen_ip", "port", "protocol", "install_path", "details",
-          "exposure", "exposure_note")
+          "exposure", "exposure_note", "in_use")
 
 
 def sync_components(db: Session, run: ScanRun, scope: str, items: list[dict], *, source: str,

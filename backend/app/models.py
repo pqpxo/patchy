@@ -155,6 +155,7 @@ class Component(Base):
     # "local" when only on loopback. Ranks findings; exposure_note says why.
     exposure: Mapped[str | None] = mapped_column(String(16))
     exposure_note: Mapped[str | None] = mapped_column(String(200))
+    in_use: Mapped[bool | None] = mapped_column(Boolean)  # a running program comes from it; None = unknown
     install_path: Mapped[str | None] = mapped_column(String(1024))
     details: Mapped[dict | None] = mapped_column(JSON)
     notes: Mapped[str | None] = mapped_column(Text)
@@ -276,7 +277,7 @@ class Finding(Base):
     fixed_versions: Mapped[list] = mapped_column(JSON, default=list)
     remediation: Mapped[str] = mapped_column(Text)
     currently_matching: Mapped[bool] = mapped_column(Boolean, default=True)
-    status: Mapped[str] = mapped_column(String(16), default="open")  # open|acknowledged|resolved|false_positive|minor|risk_accepted
+    status: Mapped[str] = mapped_column(String(16), default="open")  # open|acknowledged|resolved|false_positive|minor|risk_accepted|not_booted
     vendor_priority: Mapped[str | None] = mapped_column(String(32))  # distro rating, eg Debian 'unimportant'
     status_note: Mapped[str | None] = mapped_column(Text)
     status_changed_at: Mapped[datetime] = mapped_column(TS, default=utcnow)

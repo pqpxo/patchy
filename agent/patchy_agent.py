@@ -6,6 +6,8 @@ What it reads (each part can be switched off in the config):
   - Installed packages from the package database (/var/lib/dpkg/status, /lib/apk/db/installed, or `rpm -qa`)
   - Listening sockets from /proc/net/{tcp,tcp6,udp,udp6} (process names only where readable)
   - Running systemd service names (`systemctl list-units`)
+  - Which installed packages running programs come from, from /proc/<pid>/cmdline and the shared libraries
+    those programs need (read from their ELF headers, never by running them)
   - Versions from an allowlist of fixed commands (eg `nginx -v`), only those named in the config
   - Software added to the base OS: manually installed packages that aren't part of the base system
     (apt's auto-installed marks, the installer's package list or package priority), plus Snap and Flatpak apps
@@ -30,6 +32,7 @@ Python 3.8+, standard library only.
 from __future__ import annotations
 
 import argparse
+import glob
 import gzip
 import http.client
 import json
@@ -40,6 +43,7 @@ import shutil
 import socket
 import ssl
 import stat
+import struct
 import subprocess
 import sys
 import time
@@ -48,7 +52,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 DEFAULT_CONFIG = "/etc/patchy-agent/config.json"
 SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_OUTPUT = 64 * 1024
@@ -90,7 +94,8 @@ DEFAULTS = {
     "ca_file": None,
     "allow_insecure_http": False,
     "timeout_seconds": 30,
-    "collect": {"packages": True, "apps": True, "listening_ports": True, "services": True, "docker_images": False,
+    "collect": {"packages": True, "apps": True, "listening_ports": True, "services": True, "in_use": True,
+                "docker_images": False,
                 "image_packages": True, "image_scan": "manual", "version_probes": DEFAULT_PROBES},
     "app_dirs": [],
 }
@@ -255,6 +260,164 @@ def services():
     _, text = run_fixed(["systemctl", "list-units", "--type=service", "--state=running", "--no-legend",
                          "--plain", "--no-pager"])
     return [{"unit": line.split()[0]} for line in (text or "").splitlines() if line.strip()]
+
+
+# ---------------------------------------------------------------- packages in use
+
+CONTAINER_CGROUPS = ("docker", "containerd", "kubepods", "libpod", "podman", "lxc")
+LIB_DIRS = ("/lib", "/lib64", "/usr/lib", "/usr/lib64", "/usr/local/lib")
+MAX_IN_USE_FILES = 20000
+
+
+def running_programs():
+    """Absolute paths of programs running on the host itself (container processes are skipped).
+
+    Reads only what any user can: /proc/<pid>/cmdline, comm and cgroup. Returns None when other users'
+    processes are hidden (mounted with hidepid), since then "not running" would only mean "couldn't see".
+    """
+    try:
+        with open("/proc/1/cmdline", "rb") as f:
+            if not f.read(4096):
+                return None
+    except OSError:
+        return None
+    files = set()
+    for pid in filter(str.isdigit, os.listdir("/proc")):
+        try:
+            if any(k in read_text(f"/proc/{pid}/cgroup", 8192) for k in CONTAINER_CGROUPS):
+                continue
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                argv = [a.decode("utf-8", "replace") for a in f.read(8192).split(b"\0") if a]
+            comm = read_text(f"/proc/{pid}/comm", 256).strip()
+        except OSError:
+            continue
+        if not argv:  # kernel thread
+            continue
+        cands = [w for w in argv[0].split() if w.startswith("/")]  # also catches titles like "sshd: /usr/sbin/sshd -D"
+        cands += [a for a in argv[1:2] if a.startswith("/")]  # an interpreter's script
+        cands += [shutil.which(n, path=SAFE_PATH) or "" for n in (*argv[0].split()[:1], comm) if n and "/" not in n]
+        try:
+            cands.append(os.readlink(f"/proc/{pid}/exe"))  # only for this user's own processes
+        except OSError:
+            pass
+        files.update(os.path.realpath(c) for c in cands if c.startswith("/") and os.path.isfile(c))
+    return files
+
+
+def elf_needed(path):
+    """Shared libraries an ELF file asks for (DT_NEEDED), read from its headers. Never runs the file, unlike ldd."""
+    try:
+        with open(path, "rb") as f:
+            h = f.read(64)
+            if len(h) < 52 or h[:4] != b"\x7fELF":
+                return []
+            is64, end = h[4] == 2, "<" if h[5] == 1 else ">"
+            shoff = struct.unpack_from(end + ("Q" if is64 else "I"), h, 0x28 if is64 else 0x20)[0]
+            shentsize, shnum = struct.unpack_from(end + "HH", h, 0x3A if is64 else 0x2E)
+            if not shoff or not 0 < shnum <= 4096:
+                return []
+            f.seek(shoff)
+            table = f.read(shentsize * shnum)
+            fmt = end + ("IIQQQQIIQQ" if is64 else "IIIIIIIIII")  # name type flags addr offset size link ...
+            secs = [struct.unpack_from(fmt, table, i * shentsize) for i in range(shnum)]
+            for s in secs:
+                if s[1] != 6:  # SHT_DYNAMIC
+                    continue
+                strtab = secs[s[6]]
+                f.seek(strtab[4])
+                strings = f.read(min(strtab[5], 1 << 20))
+                f.seek(s[4])
+                dyn = f.read(min(s[5], 1 << 20))
+                size, entry = (16, end + "qQ") if is64 else (8, end + "iI")
+                out = []
+                for i in range(0, len(dyn) - size + 1, size):
+                    tag, val = struct.unpack_from(entry, dyn, i)
+                    if tag == 0:
+                        break
+                    if tag == 1:  # DT_NEEDED
+                        out.append(strings[val:strings.index(b"\0", val)].decode("utf-8", "replace"))
+                return out
+    except (OSError, struct.error, ValueError, IndexError):
+        pass
+    return []
+
+
+def soname_index():
+    """soname -> paths in the usual library directories, without running ldconfig."""
+    dirs = list(LIB_DIRS) + glob.glob("/lib/*-linux-*") + glob.glob("/usr/lib/*-linux-*")
+    for conf in glob.glob("/etc/ld.so.conf.d/*.conf"):
+        try:
+            dirs += [line.strip() for line in read_text(conf, 65536).splitlines() if line.strip().startswith("/")]
+        except OSError:
+            pass
+    index = {}
+    for d in dict.fromkeys(dirs):
+        try:
+            for name in os.listdir(d):
+                if ".so" in name:
+                    index.setdefault(name, []).append(os.path.join(d, name))
+        except OSError:
+            continue
+    return index
+
+
+def _usr_variants(paths):
+    """dpkg and apk may list /lib/x when it really lives at /usr/lib/x (merged /usr), and the other way round."""
+    out = set()
+    for p in paths:
+        out.add(p)
+        out.add(p[4:] if p.startswith("/usr/") else "/usr" + p)
+    return out
+
+
+def package_owners(files):
+    """Names of the installed packages that own any of these files."""
+    want, owners = _usr_variants(files), set()
+    if os.path.isdir("/var/lib/dpkg/info"):
+        for lst in glob.glob("/var/lib/dpkg/info/*.list"):
+            try:
+                if any(line in want for line in read_text(lst).splitlines()):
+                    owners.add(os.path.basename(lst)[:-5].split(":")[0])
+            except OSError:
+                continue
+    elif os.path.exists("/lib/apk/db/installed"):
+        for block in read_text("/lib/apk/db/installed").split("\n\n"):
+            name, folder = None, ""
+            for line in block.splitlines():
+                if line.startswith("P:"):
+                    name = line[2:]
+                elif line.startswith("F:"):
+                    folder = line[2:]
+                elif line.startswith("R:") and name and f"/{folder}/{line[2:]}" in want:
+                    owners.add(name)
+                    break
+    elif shutil.which("rpm", path=SAFE_PATH):
+        real = sorted(f for f in files if os.path.exists(f))
+        for i in range(0, len(real), 200):
+            _, text = run_fixed(["rpm", "-qf", "--qf", "%{NAME}\\n", *real[i:i + 200]], 60)
+            owners.update(line.strip() for line in (text or "").splitlines() if line.strip() and " " not in line.strip())
+    return owners
+
+
+def in_use_packages():
+    """Packages that running programs come from, plus the shared libraries they load at start.
+
+    Misses what's loaded later (plugins, Python or Perl modules) and tools that run now and then, so Patchy
+    only ranks the rest lower; it never hides them. None when processes can't be seen.
+    """
+    progs = running_programs()
+    if progs is None:
+        return None
+    index, todo, done = soname_index(), list(progs), set()
+    while todo and len(done) < MAX_IN_USE_FILES:
+        path = todo.pop()
+        if path in done:
+            continue
+        done.add(path)
+        for so in elf_needed(path):
+            for lib in index.get(so, ()):
+                todo += [lib, os.path.realpath(lib)]
+    return sorted(package_owners(done))
 
 
 DOCKER_SOCKET = "/var/run/docker.sock"
@@ -567,12 +730,14 @@ def collect(cfg, requested=()):
     requested = set(requested)
     report = {"schema": 1, "report_id": str(uuid.uuid4()), "agent_version": VERSION, "generated_at": now_iso(),
               "host": host_info(), "packages": [], "apps": [], "probes": [], "listening": [], "services": [],
-              "containers": [], "images": [], "paths": [], "errors": errors, "image_requests_done": []}
+              "containers": [], "images": [], "paths": [], "errors": errors, "image_requests_done": [],
+              "in_use": None}
     scan_images = bool(col.get("docker_images") and col.get("image_packages", True))
     steps = [("packages", col.get("packages"), lambda: packages(errors, meta)),
              ("apps", col.get("apps"), lambda: added_apps(report["packages"], meta)),
              ("listening", col.get("listening_ports"), listening),
              ("services", col.get("services"), services),
+             ("in_use", col.get("in_use", True) and col.get("packages"), in_use_packages),
              ("containers", col.get("docker_images"), lambda: docker_containers(errors)),
              ("images", scan_images, lambda: image_packages(report["containers"], errors, requested=requested,
                                                            auto=col.get("image_scan") == "auto", deferred=deferred)),
@@ -615,6 +780,7 @@ def sample_report():
         "listening": [{"protocol": "tcp", "ip": "0.0.0.0", "port": 80, "process": "nginx"},
                       {"protocol": "tcp", "ip": "0.0.0.0", "port": 22, "process": None}],
         "services": [{"unit": "nginx.service"}, {"unit": "ssh.service"}],
+        "in_use": ["libssl3", "nginx"],
         "apps": [{"manager": "dpkg", "name": "nginx", "version": "1.22.1-9"}],
         "containers": [{"name": "sample-web", "image": "nginx:1.27", "image_id": "sha256:" + "5a" * 32,
                         "state": "running", "status": "Up 2 hours",

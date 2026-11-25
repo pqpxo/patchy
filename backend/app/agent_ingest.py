@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from . import inuse
 from .db import utcnow
 from .inventory import sync_components
 from .models import Agent, Host, HostPath, HostService, ScanRun
@@ -140,6 +141,7 @@ class Report(_M):
     apps: list[App] = Field(default_factory=list, max_length=5000)
     images: list[ImageScan] = Field(default_factory=list, max_length=100)
     image_requests_done: list[S] | None = Field(default=None, max_length=200)  # agents before 1.4 don't send it
+    in_use: list[S] | None = Field(default=None, max_length=50000)  # packages running programs come from (agent 1.5+)
     paths: list[PathListing] = Field(default_factory=list, max_length=20)
     errors: list[Annotated[str, StringConstraints(max_length=500)]] = Field(default_factory=list, max_length=100)
 
@@ -301,6 +303,7 @@ def ingest(db: Session, agent: Agent, report: Report, ip: str) -> tuple[ScanRun,
         g["versions"].add(p.version)
     rows = []
     procs, ctrs = exposure_maps(report)
+    running = set(report.in_use) if report.in_use is not None else None
     for (manager, src, src_ver), g in groups.items():
         rows.append(_expose({
             "identity": f"pkg|{manager}|{src}", "name": src, "component_type": "os_package",
@@ -308,6 +311,7 @@ def ingest(db: Session, agent: Agent, report: Report, ip: str) -> tuple[ScanRun,
             "source_package": src, "source_version": src_ver, "vendor": report.host.os.id,
             "details": {"manager": manager, "binaries": sorted(g["binaries"])[:200],
                         "binary_versions": sorted(g["versions"])[:20]}, "paths": [],
+            "in_use": inuse.in_use(g["binaries"], src_ver, report.host.kernel, running),
         }, _best(procs[n] for n in {src, *g["binaries"]} if n in procs)))
     by_process = {}
     for l in report.listening:
