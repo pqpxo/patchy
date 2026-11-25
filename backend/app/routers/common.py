@@ -84,6 +84,7 @@ def finding_out(f: Finding) -> FindingOut:
         "ecosystem": c.ecosystem, "host_id": c.host_id, "host_name": c.host.name if c.host else None,
         "repository_id": c.repository_id, "repository_label": repo_label(c.repository),
         "image": (c.details or {}).get("image"), "exposure": c.exposure, "exposure_note": c.exposure_note,
+        "in_use": c.in_use,
         "advisory": AdvisoryOut.model_validate(f.advisory),
         "due_at": deadlines.due_at(deadlines.config(object_session(f)), f.advisory.severity, f.advisory.kev,
                                    f.advisory.kev_date_added, f.first_detected_at) if f.status in OPEN else None,

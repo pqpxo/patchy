@@ -2,6 +2,17 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.19.0 - 2026-11-25
+
+### Added
+- **Running or not**: agent 1.5 reports which packages running programs come from, including the shared libraries they load at start. Findings in packages nothing running comes from show a **Not running** badge and rank lower in the Priority sort and fix plans, but stay open and counted. A *Running* filter on Vulnerabilities and a count on the Overview.
+- **Old kernels set aside**: findings in an installed kernel that isn't the booted one get a new automatic status, **Not booted**, and leave the open counts, alerts and fix plans. They reopen by themselves if that kernel is booted and resolve when it's removed. This works from `uname -r`, so it needs no agent update.
+
+### Upgrade notes
+- Adds one nullable column (`components.in_use`). The migration runs on start and changes no existing data.
+- Update agents to 1.5.0 for the running check (re-run the install script, or copy `agent/patchy_agent.py`). Older agents keep working; their packages show as unknown and rank as before.
+- Old-kernel findings are set aside on the next match after the next report from each host.
+
 ## 1.18.0 - 2026-11-25
 
 ### Added

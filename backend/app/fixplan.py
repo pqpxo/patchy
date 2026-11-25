@@ -125,8 +125,9 @@ EXPOSURE = {"network": 2, "local": 1}
 
 
 def _rank(i: dict) -> tuple:
-    """Known exploited first, then reachable over the network, then worst severity."""
-    return not i["kev"], -EXPOSURE.get(i["exposure"], 0), -SEV.get(i["worst"], 0), i["name"].lower()
+    """Known exploited first, then running, then reachable over the network, then worst severity."""
+    return (not i["kev"], i["in_use"] is False, -EXPOSURE.get(i["exposure"], 0), -SEV.get(i["worst"], 0),
+            i["name"].lower())
 
 
 def build(db: Session, host_id: int | None = None, repository_id: int | None = None) -> dict:
@@ -153,7 +154,7 @@ def build(db: Session, host_id: int | None = None, repository_id: int | None = N
             "component_id": c.id, "name": c.name, "package": c.source_package or c.name,
             "current": c.source_version or c.version, "target": target, "findings": len(findings),
             "worst": worst, "kev": any(f.advisory.kev for f in findings),
-            "exposure": c.exposure, "exposure_note": c.exposure_note,
+            "exposure": c.exposure, "exposure_note": c.exposure_note, "in_use": c.in_use,
             "epss": max((f.advisory.epss or 0 for f in findings), default=0) or None,
             "possible_only": all(f.match_status == m.POSSIBLE for f in findings),
             "binaries": (c.details or {}).get("binaries") or [c.source_package or c.name],

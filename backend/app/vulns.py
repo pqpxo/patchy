@@ -13,7 +13,7 @@ import httpx
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from . import cpe, eol, fixplan, risk, sources
+from . import cpe, eol, fixplan, inuse, risk, sources
 from . import matching as m
 from . import __version__
 from .config import settings
@@ -335,7 +335,7 @@ def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
         q = q.where(Component.id.in_(component_ids))
     now = utcnow()
     cache = {(o.ecosystem, o.name, o.version): o for o in db.scalars(select(OsvQuery))}
-    stats = {"components": 0, "new": 0, "auto_resolved": 0, "reopened": 0, "minor": 0}
+    stats = {"components": 0, "new": 0, "auto_resolved": 0, "reopened": 0, "minor": 0, "not_booted": 0}
     comps = db.scalars(q).all()
     pkgs = eol.host_packages(db, [c.host_id for c in comps if c.host_id])
     eol_data = eol.load(db)
@@ -354,6 +354,7 @@ def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
         existing = findings.get(c.id, {})
         matched = {}
         ident = idents[c.id]
+        old_kernel = c.in_use is False and inuse.is_kernel((c.details or {}).get("binaries"))
         if ident and c.missing_since is None:
             eco, name, version = ident
             cached = cache.get((eco, name, version or ""))
@@ -403,11 +404,20 @@ def rematch(db: Session, component_ids: list[int] | None = None) -> dict:
                 f.status, f.status_changed_at, f.status_changed_by = "open", now, "system"
                 f.status_note = "Reopened automatically: the distro raised its rating, or it is now known exploited."
                 stats["reopened"] += 1
+            if old_kernel and f.status == "open" and f.status_changed_by == "system":
+                f.status, f.status_changed_at = "not_booted", now
+                f.status_note = ("Set aside automatically: this kernel is installed but isn't the one running, so it "
+                                 "matters only if the host boots it. Remove old kernels to clear it.")
+                stats["not_booted"] += 1
+            elif not old_kernel and f.status == "not_booted":
+                f.status, f.status_changed_at, f.status_changed_by = "open", now, "system"
+                f.status_note = "Reopened automatically: this kernel is now running, or Patchy can no longer tell."
+                stats["reopened"] += 1
         for adv_id, f in existing.items():
             if adv_id in matched:
                 continue
             f.currently_matching, f.last_checked_at = False, now
-            if f.status in ("open", "acknowledged", "minor", "risk_accepted"):
+            if f.status in ("open", "acknowledged", "minor", "risk_accepted", "not_booted"):
                 why = "component no longer present in latest scan" if c.missing_since else \
                     f"version {c.version or 'unknown'} no longer matches the advisory"
                 f.status, f.status_note = "resolved", f"Resolved automatically: {why}."

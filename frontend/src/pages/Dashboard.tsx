@@ -6,7 +6,7 @@ import { Epss, ErrorBox, Kev, Link, PageHead, Reach, Sev, Skeleton, Status, When
 
 interface Dash {
   severity: Record<string, number>; match_status: Record<string, number>; status: Record<string, number>;
-  kev_open: number; overdue: number; time_to_fix: { days: number; fixed: number; median_days: number | null; on_time_pct: number | null };
+  kev_open: number; overdue: number; not_running: number; time_to_fix: { days: number; fixed: number; median_days: number | null; on_time_pct: number | null };
   top_assets: { id: number; name: string; version: string | null; location: string | null; open: number; max_severity: string }[];
   coverage: { total: number; not_checkable: number; version_unknown: number; not_checked_yet: number; checked: number };
   end_of_life: { eol: number; eol_soon: number; hosts_eol: number; hosts_eol_soon: number };
@@ -107,6 +107,7 @@ function ExposureStrip({ d }: { d: Dash }) {
   const total = LEVELS.reduce((a, s) => a + (d.severity[s] ?? 0), 0);
   const unknownOpen = d.match_status.unknown_version ?? 0;
   const minor = d.status.minor ?? 0;
+  const notBooted = d.status.not_booted ?? 0;
   return (
     <section className="card strip" aria-label="Open findings by severity">
       <div className="card-head"><h2>Open exposure</h2><span className="small muted">confirmed and possible matches</span></div>
@@ -126,9 +127,11 @@ function ExposureStrip({ d }: { d: Dash }) {
           <span className="n">{d.overdue}</span><span className="l">overdue</span>
         </Link>
       </div>
-      {(unknownOpen > 0 || minor > 0) && <p className="small muted">
+      {(unknownOpen > 0 || minor > 0 || notBooted > 0 || d.not_running > 0) && <p className="small muted">
         {unknownOpen > 0 && <>A further <Link to="/vulnerabilities?match_status=unknown_version">{unknownOpen} need a version</Link> before Patchy can confirm them. </>}
-        {minor > 0 && <><Link to="/vulnerabilities?status=minor">{minor} more</Link> are set aside because the distro rates them unimportant or negligible.</>}
+        {minor > 0 && <><Link to="/vulnerabilities?status=minor">{minor} more</Link> are set aside because the distro rates them unimportant or negligible. </>}
+        {notBooted > 0 && <><Link to="/vulnerabilities?status=not_booted">{notBooted}</Link> are in installed kernels that aren't booted. </>}
+        {d.not_running > 0 && <>Of the open ones, <Link to="/vulnerabilities?in_use=false">{d.not_running} are in software that isn't running</Link>, so they rank lower.</>}
       </p>}
       {d.time_to_fix.fixed > 0 && <p className="small muted">
         Last {d.time_to_fix.days} days: {d.time_to_fix.fixed} fixed, typically {(d.time_to_fix.median_days ?? 0) < 1 ? "within a day"
