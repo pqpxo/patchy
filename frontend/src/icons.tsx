@@ -28,6 +28,7 @@ const P: Record<string, string> = {
   filter: "M4 5h16l-6 7.5V19l-4 1v-7.5z",
   bell: "M6 16v-5a6 6 0 0 1 12 0v5l2 2H4zM10 21h4",
   "bell-off": "M6 16v-5a6 6 0 0 1 12 0v5l2 2H4zM10 21h4M4 3l16 16",
+  download: "M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14",
 };
 
 export type IconName = keyof typeof P;

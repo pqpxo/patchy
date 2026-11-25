@@ -37,9 +37,12 @@ def test_minor_findings_are_set_aside_and_come_back(db, auth_client, host):
     assert [i["advisory"]["id"] for i in page["items"]] == ["DEBIAN-CVE-1"]
     assert page["items"][0]["vendor_priority"] == "unimportant"
 
-    # A person setting it to Open keeps it open; minor itself can't be set by hand.
+    # Minor can't be chosen by hand, but a minor finding's note can be edited without changing it.
     fid = f["DEBIAN-CVE-1"].id
-    assert auth_client.post(f"/api/findings/{fid}/status", json={"status": "minor"}).status_code == 422
+    assert auth_client.post(f"/api/findings/{f['DEBIAN-CVE-3'].id}/status", json={"status": "minor"}).status_code == 422
+    r = auth_client.post(f"/api/findings/{fid}/status", json={"status": "minor", "note": "Checked: not built"})
+    assert r.status_code == 200 and r.json()["status"] == "minor" and r.json()["status_changed_by"] == "system"
+    # A person setting it to Open keeps it open.
     assert auth_client.post(f"/api/findings/{fid}/status", json={"status": "open"}).status_code == 200
     vulns.rematch(db)
     db.commit()
