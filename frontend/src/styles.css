@@ -239,6 +239,7 @@ main#main:focus { outline: none; }
 .alert.warn { border-left-color: var(--warn); }
 .alert.info { border-left-color: var(--signal); }
 .alert > p { margin: 0; }
+.alert > details { flex-basis: 100%; }
 .empty { border: 1px dashed var(--rule-2); border-radius: var(--r2); padding: 32px; text-align: center; color: var(--ink-3); display: grid; gap: 6px; }
 .empty strong { color: var(--ink); }
 
