@@ -4,6 +4,8 @@
   python -m app.cli reset-password [--username admin]   set a new password, sign out all sessions
   python -m app.cli seed-demo                           load clearly-labelled DEMO data
   python -m app.cli clear-demo                          remove demo data
+  python -m app.cli demo-build                          fetch the public demo's data snapshot (needs internet)
+  python -m app.cli demo-load                           fill an EMPTY database with the public demo
 """
 import argparse
 import getpass
@@ -119,7 +121,12 @@ def main(argv=None) -> None:
         sp.add_argument("--username", default="admin")
     sub.add_parser("seed-demo")
     sub.add_parser("clear-demo")
+    sub.add_parser("demo-build")
+    sub.add_parser("demo-load")
     a = p.parse_args(argv)
+    if a.cmd.startswith("demo-"):
+        from . import demo
+        return (demo.build_cli if a.cmd == "demo-build" else demo.load_cli)()
     {"create-admin": lambda: create_admin(a.username), "reset-password": lambda: reset_password(a.username),
      "seed-demo": seed_demo, "clear-demo": clear_demo}[a.cmd]()
 

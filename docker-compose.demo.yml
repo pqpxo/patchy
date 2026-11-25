@@ -1,0 +1,28 @@
+# Patchy public demo: a made-up home lab matched against a bundled snapshot of real, public vulnerability data.
+# Read-only, no sign-in, no outbound connections, no database server. Everything lives in a throwaway SQLite
+# file on tmpfs and is rebuilt from scratch on every start, so nothing a visitor does (or could do) is kept.
+#
+#   docker compose -f docker-compose.demo.yml up -d --build
+#
+# Then point your reverse proxy at port DEMO_PORT (8081 by default). Don't run this with your real .env.
+services:
+  demo:
+    build: .
+    image: patchy:demo
+    pull_policy: build
+    restart: unless-stopped
+    environment:
+      DEMO_MODE: "true"
+      DATABASE_URL: sqlite:////tmp/patchy-demo.db
+      PORT: ${DEMO_PORT:-8081}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      FEED_STALE_HOURS: "87600"  # the snapshot is meant to be old; don't warn about it
+      NEWS_FEEDS: ""
+    command: ["sh", "-c", "alembic upgrade head && python -m app.cli demo-load && exec uvicorn app.main:app --host 0.0.0.0 --port \"$PORT\" --workers 1 --proxy-headers --forwarded-allow-ips \"$FORWARDED_ALLOW_IPS\" --no-server-header"]
+    ports:
+      - "${DEMO_PORT:-8081}:${DEMO_PORT:-8081}"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m

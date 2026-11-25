@@ -16,6 +16,8 @@ class Settings:
         self.port = _int("PORT", 8080)
         self.cookie_secure = _bool("COOKIE_SECURE", True)
         self.session_hours = _int("SESSION_HOURS", 12)
+        # Public demo: everyone is the demo user and every change is refused. See app/demo.py.
+        self.demo_mode = _bool("DEMO_MODE", False)
         # Secrets: never returned by the API, never logged.
         self.github_token = os.getenv("GITHUB_TOKEN", "").strip()
         self.nvd_api_key = os.getenv("NVD_API_KEY", "").strip()
