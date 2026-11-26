@@ -2,6 +2,7 @@ import html
 import logging
 import os
 import pathlib
+import re
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -26,8 +27,10 @@ app.include_router(security_api.agent_router)
 app.include_router(integrations.router)
 app.include_router(risks.router)
 
+# base-uri 'self' allows the <base href> that sets the mount path. frame-ancestors 'self' lets a
+# same-origin portal (SWSuite) show Patchy in a frame; no other site can.
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
-       "font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+       "font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'")
 
 
 @app.middleware("http")
@@ -38,7 +41,7 @@ async def security_headers(request: Request, call_next):
                                 CSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net")
                                 .replace("style-src 'self'", "style-src 'self' https://cdn.jsdelivr.net"))
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     if request.url.path.startswith("/api/"):
@@ -72,8 +75,27 @@ def health():
     return {"status": "ok"}
 
 
+# Path prefix a reverse proxy mounts Patchy under (eg /patchy), from X-Forwarded-Prefix.
+# Only plain path segments are accepted, so the header can never inject markup.
+PREFIX_RE = re.compile(r"(/[A-Za-z0-9_-]+)*")
+
+
+def render_index(index: pathlib.Path, prefix: str) -> str:
+    page = index.read_text(encoding="utf-8")
+    if not PREFIX_RE.fullmatch(prefix):
+        prefix = ""
+    page = page.replace('<base href="/"', f'<base href="{prefix}/"', 1)
+    head = ""
+    if settings.suite_assets_path:  # suite theme first, so Patchy's own theme-init sees data-theme
+        s = settings.suite_assets_path
+        head += f'<script src="{s}/theme-init.js"></script><link rel="stylesheet" href="{s}/theme.css">'
+    if settings.blocked_url:  # in the page itself, as the API is what gets blocked
+        head += f'<meta name="blocked-url" content="{html.escape(settings.blocked_url)}">'
+    return page.replace("<head>", "<head>" + head, 1)
+
+
 @app.get("/{path:path}", include_in_schema=False)
-def spa(path: str):
+def spa(path: str, request: Request):
     """Serve the built React app; unknown non-API paths fall back to index.html for client routing."""
     if path.startswith("api/"):
         raise StarletteHTTPException(404)
@@ -83,7 +105,5 @@ def spa(path: str):
     index = STATIC / "index.html"
     if not index.exists():
         return JSONResponse({"detail": "Frontend not built. Run `npm run build` in frontend/."}, status_code=503)
-    if settings.blocked_url:  # in the page itself, as the API is what gets blocked
-        meta = f'<meta name="blocked-url" content="{html.escape(settings.blocked_url)}">'
-        return HTMLResponse(index.read_text(encoding="utf-8").replace("<head>", "<head>" + meta, 1))
-    return FileResponse(index)
+    return HTMLResponse(render_index(index, request.headers.get("x-forwarded-prefix", "")),
+                        headers={"Cache-Control": "no-cache"})

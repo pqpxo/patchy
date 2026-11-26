@@ -48,7 +48,24 @@ def test_csrf_required_for_writes(client, admin):
 def test_security_headers(client):
     r = client.get("/api/health")
     assert "default-src 'self'" in r.headers["content-security-policy"]
-    assert r.headers["x-frame-options"] == "DENY"
+    # Same-origin framing only: lets the SWSuite portal show Patchy, no other site.
+    assert r.headers["x-frame-options"] == "SAMEORIGIN"
+    assert "frame-ancestors 'self'" in r.headers["content-security-policy"]
+
+
+def test_index_base_href_follows_forwarded_prefix(tmp_path, monkeypatch):
+    from app import main
+    index = tmp_path / "index.html"
+    index.write_text('<html><head><base href="/" /></head></html>', encoding="utf-8")
+    assert '<base href="/patchy/"' in main.render_index(index, "/patchy")
+    assert '<base href="/"' in main.render_index(index, "")
+    # Anything but plain path segments is ignored, so the header cannot inject markup.
+    assert '<base href="/"' in main.render_index(index, '/x"><script>')
+    assert "<script" not in main.render_index(index, '/x"><script>')
+    assert "theme.css" not in main.render_index(index, "/patchy")
+    monkeypatch.setattr(main.settings, "suite_assets_path", "/suite")
+    page = main.render_index(index, "/patchy")
+    assert page.index('src="/suite/theme-init.js"') < page.index("<base")
 
 
 def test_asset_crud_and_validation(auth_client, db):

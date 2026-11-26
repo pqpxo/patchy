@@ -22,6 +22,10 @@
 [data-scheme="rose"]     { --h: 342; --s: 14%; --s2: 22%; --ah: 345; --as: 62%; }
 [data-scheme="berry"]    { --h: 312; --s: 18%; --s2: 20%; --ah: 318; --as: 56%; }
 
+/* SWSuite: inside the suite portal, surfaces, text, accent and font come from the suite's
+   /suite/theme.css (loaded by the server). Severity and state colours stay Patchy's own. */
+[data-scheme="suite"]    { --h: 218; --s: 34%; --s2: 30%; --ah: 212; --as: 88%; }
+
 /* ---------- night ---------- */
 [data-mode="night"] {
   --canvas: hsl(var(--h) var(--s) 9%);
@@ -75,6 +79,15 @@
   --canvas: #fff; --panel: #fff; --raised: #f4f4f4; --inset: #fff; --ink: #000; --ink-2: #1a1a1a; --ink-3: #333; --ink-4: #555;
   --rule: rgb(0 0 0 / 0.35); --rule-2: rgb(0 0 0 / 0.55); --rule-3: rgb(0 0 0 / 0.85);
   --signal: #0038a8; --signal-wash: rgb(0 56 168 / 0.1);
+}
+
+[data-scheme="suite"][data-mode] {
+  --canvas: var(--sw-bg); --panel: var(--sw-surface); --raised: var(--sw-surface-raised); --inset: var(--sw-bg);
+  --ink: var(--sw-text); --ink-2: var(--sw-text-muted);
+  --rule-2: var(--sw-border);
+  --signal: var(--sw-accent); --signal-ink: var(--sw-accent-ink);
+  --signal-wash: color-mix(in srgb, var(--sw-accent) 12%, transparent);
+  --ui: var(--sw-font);
 }
 
 /* ---------- fonts and density ---------- */

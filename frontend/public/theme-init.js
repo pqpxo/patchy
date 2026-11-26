@@ -5,7 +5,9 @@
   var mode = p.mode === "day" || p.mode === "night" ? p.mode
     : window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "day" : "night";
   var d = document.documentElement;
-  d.dataset.scheme = p.scheme || "navy";
+  // Inside SWSuite, the suite's theme-init.js ran first and set data-theme: follow it.
+  if (d.dataset.theme) mode = d.dataset.theme === "light" ? "day" : "night";
+  d.dataset.scheme = d.dataset.theme ? "suite" : p.scheme || "navy";
   d.dataset.mode = mode;
   d.dataset.font = p.font || "system";
   d.dataset.density = p.density || "comfortable";

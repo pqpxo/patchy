@@ -1,26 +1,29 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ApiError, type ScanRun } from "./api";
+import { BASE, withBase } from "./base";
 import { CHECK_STATES, EOL_STATES, MATCH_STATUS, ago, fmtDate, pct } from "./format";
 import { Icon } from "./icons";
 import { PAGE_SIZES, loadColumns, saveColumns, setPrefs, usePrefs } from "./prefs";
 
 // ---------- router (History API; the server falls back to index.html) ----------
+// Routes are written root-absolute ("/hosts/3"); BASE is added on the way out and removed on the way in.
 
 const subscribe = (cb: () => void) => {
   window.addEventListener("popstate", cb);
   return () => window.removeEventListener("popstate", cb);
 };
-export const usePath = () => useSyncExternalStore(subscribe, () => window.location.pathname + window.location.search);
+const appPath = () => (window.location.pathname.slice(BASE.length) || "/") + window.location.search;
+export const usePath = () => useSyncExternalStore(subscribe, appPath);
 
 export function navigate(to: string) {
-  window.history.pushState(null, "", to);
+  window.history.pushState(null, "", withBase(to));
   window.dispatchEvent(new PopStateEvent("popstate"));
   window.scrollTo(0, 0);
 }
 
 export function Link({ to, children, className, title }: { to: string; children: ReactNode; className?: string; title?: string }) {
   return (
-    <a href={to} className={className} title={title} onClick={(e) => {
+    <a href={withBase(to)} className={className} title={title} onClick={(e) => {
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
       e.preventDefault();
       navigate(to);

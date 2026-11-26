@@ -1,8 +1,9 @@
+import { appUrl } from "../base";
 import { useState, type ReactNode } from "react";
 import { del, get, post, put, type AuditEntry, type Feed, type Host, type Page, type ScanRun } from "../api";
 import { Icon } from "../icons";
 import { HOURS_LABEL, safeUrl } from "../format";
-import { FONTS, PAGE_SIZES, SCHEMES, resolvedMode, setPrefs, usePrefs, type Mode } from "../prefs";
+import { FONTS, IN_SUITE, PAGE_SIZES, SCHEMES, resolvedMode, setPrefs, usePrefs, type Mode } from "../prefs";
 import { CodeBlock, ErrorBox, Field, KV, Link, PageHead, Pager, RunBanner, Skeleton, Switch, When, errText, toast, useLoad, useQueryParam } from "../ui";
 
 interface SettingsData {
@@ -37,14 +38,16 @@ function Appearance() {
   return (
     <>
       <section className="card">
-        <div className="setting-row">
+        {IN_SUITE ? <div className="setting-row">
+          <div><div className="label">Colours and mode</div><div className="help">Set by SWSuite. Use the theme button in the suite's top bar.</div></div>
+        </div> : <div className="setting-row">
           <div><div className="label">Mode</div><div className="help">Day, night, or follow your device. Saved in this browser.</div></div>
           <div className="seg-ctl" role="group" aria-label="Mode">
             {modes.map(([id, l, icon]) => (
               <button key={id} aria-pressed={p.mode === id} onClick={() => setPrefs({ mode: id })}><Icon name={icon} size={14} />{l}</button>
             ))}
           </div>
-        </div>
+        </div>}
         <div className="setting-row">
           <div><div className="label">Density</div><div className="help">Compact fits more rows on screen.</div></div>
           <div className="seg-ctl" role="group" aria-label="Density">
@@ -64,7 +67,7 @@ function Appearance() {
           <Switch on={p.rail} onChange={(v) => setPrefs({ rail: v })} label="Icons-only sidebar" />
         </div>
       </section>
-      <section className="card">
+      {!IN_SUITE && <section className="card">
         <h2>Colour scheme</h2>
         <div className="themes">
           {SCHEMES.map((s) => (
@@ -81,8 +84,8 @@ function Appearance() {
             </button>
           ))}
         </div>
-      </section>
-      <section className="card">
+      </section>}
+      {!IN_SUITE && <section className="card">
         <h2>Font</h2>
         <p className="small muted">Uses fonts already on your device, so nothing is downloaded. Numbers and versions always use a monospaced font.</p>
         <div className="fonts">
@@ -92,7 +95,7 @@ function Appearance() {
             </button>
           ))}
         </div>
-      </section>
+      </section>}
     </>
   );
 }
@@ -423,7 +426,7 @@ function Integrations() {
     try { await del(`/api/settings/tokens/${t.id}`); toast(`${t.name} revoked.`); tokens.reload(); }
     catch (e) { toast(errText(e), "bad"); }
   };
-  const origin = window.location.origin;
+  const origin = appUrl();
   return (
     <>
       <section className="card">

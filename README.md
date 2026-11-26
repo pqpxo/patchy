@@ -125,6 +125,7 @@ All settings are environment variables in `.env`. See [.env.example](.env.exampl
 | `SESSION_IDLE_MINUTES` | `0` | New in 1.25. Sign out after this many minutes without activity. `0` = off (sessions last `SESSION_HOURS`) |
 | `BLOCKED_URL` | (empty) | A page to send visitors to when a proxy or CDN in front of Patchy rate-limits them. Patchy's own limits still show their usual message |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Reverse proxy IP(s) trusted for `X-Forwarded-For` |
+| `SUITE_ASSETS_PATH` | (empty) | Path of a portal's shared theme (eg `/suite`). When set, Patchy loads `theme.css` and `theme-init.js` from it and follows that theme. Used by SWSuite |
 | `GITHUB_TOKEN` | empty | Private repos and 5000 requests/h. Never sent to the browser |
 | `OSV_ENABLED` / `KEV_ENABLED` / `NVD_ENABLED` | `true` / `true` / `false` | Source switches (defaults; Settings can override) |
 | `NVD_CPE_ENABLED` / `EPSS_ENABLED` / `EOL_ENABLED` / `DEPENDABOT_ENABLED` | `true` | New in 1.1. Dependabot also needs `GITHUB_TOKEN` with "Dependabot alerts: read" |
@@ -146,6 +147,9 @@ All settings are environment variables in `.env`. See [.env.example](.env.exampl
 
 > [!TIP]
 > Behind Nginx Proxy Manager, set `FORWARDED_ALLOW_IPS` to the proxy's IP (or its Docker network gateway). Otherwise every request appears to come from the proxy, which skews rate limits and the audit log.
+
+> [!TIP]
+> To serve Patchy under a path such as `https://example.lan/patchy/`, have the proxy strip the prefix and send it as `X-Forwarded-Prefix: /patchy`. In Caddy: `handle_path /patchy/* { reverse_proxy patchy:8080 { header_up X-Forwarded-Prefix /patchy } }`. Point agents at the full address, including `/patchy`.
 
 <br>
 

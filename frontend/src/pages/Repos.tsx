@@ -1,3 +1,4 @@
+import { BASE } from "../base";
 import { useState } from "react";
 import { del, get, post, qs, type Asset, type Dependabot, type Finding, type Page, type Repo, type ScanRun } from "../api";
 import { Icon } from "../icons";
@@ -135,7 +136,7 @@ export function RepoDetailPage({ id }: { id: number }) {
           <button className="btn primary" disabled={busy || r.is_demo} onClick={async () => {
             try { await post(`/api/repositories/${r.id}/scan`); toast("Scan queued."); reload(); } catch (e) { toast(errText(e), "bad"); }
           }}><Icon name="refresh" size={14} /> {busy ? "Scanning…" : "Scan now"}</button>
-          <a className="btn" href={`/api/sbom?repository_id=${r.id}`} download title="CycloneDX SBOM of this repository's dependencies, with open vulnerabilities">SBOM</a>
+          <a className="btn" href={`${BASE}/api/sbom?repository_id=${r.id}`} download title="CycloneDX SBOM of this repository's dependencies, with open vulnerabilities">SBOM</a>
           <DangerButton question={`Stop tracking ${r.owner}/${r.name}? Its assets and findings are deleted.`}
             onConfirm={async () => { await del(`/api/repositories/${r.id}`); toast("Repository removed."); navigate("/repositories"); }}>Delete</DangerButton>
         </>} />
@@ -162,7 +163,7 @@ export function RepoDetailPage({ id }: { id: number }) {
         : <Empty title="Nothing detected yet." />) : <Skeleton />)}
       {t === "findings" && (findings.data ? (findings.data.items.length
         ? <><FindingTable items={findings.data.items} sort={fSort} table="repo-findings"
-            tools={<a className="btn small" href={`/api/findings/export${qs({ repository_id: id, status: ["open", "acknowledged"], sort: fSort.sort, order: fSort.order })}`} download>Export CSV</a>} />
+            tools={<a className="btn small" href={`${BASE}/api/findings/export${qs({ repository_id: id, status: ["open", "acknowledged"], sort: fSort.sort, order: fSort.order })}`} download>Export CSV</a>} />
           <TabPager data={findings.data} onPage={setFPage} /></>
         : <Empty title="No open findings in this repository." />) : <Skeleton />)}
       {t === "fix" && <FixPlan repositoryId={id} />}

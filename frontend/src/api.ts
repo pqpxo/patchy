@@ -1,4 +1,5 @@
 // Thin fetch wrapper: same-origin cookies, CSRF header on writes, consistent errors.
+import { withBase } from "./base";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public fields: { loc: string[]; msg: string }[] = []) {
@@ -28,7 +29,7 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (method !== "GET") headers["X-CSRF-Token"] = csrf;
-  const res = await fetch(path, {
+  const res = await fetch(withBase(path), {
     method, headers, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (res.status === 204) return undefined as T;

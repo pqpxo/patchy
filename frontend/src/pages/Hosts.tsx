@@ -1,3 +1,4 @@
+import { BASE, appUrl } from "../base";
 import { useEffect, useRef, useState } from "react";
 import { del, get, post, qs, type AddedApp, type Agent, type Asset, type Container, type Finding, type Host, type HostUpdates, type Page, type ScanRun,
   type UpgradeRun } from "../api";
@@ -123,7 +124,7 @@ function ImageFindings({ s, c, host, onScan }: { s?: ImageSummary; c: Container;
       : <span className="badge tone-good">None found</span>}
     <div className="cell-sub">{s.packages} package{s.packages === 1 ? "" : "s"}
       {known && known.image_id === c.image_id && <>, scanned <When iso={known.scanned_at} /></>}
-      , <a href={`/api/sbom${qs({ host_id: host.id, image: c.image })}`} download title="CycloneDX SBOM of this image's packages">SBOM</a></div>
+      , <a href={`${BASE}/api/sbom${qs({ host_id: host.id, image: c.image })}`} download title="CycloneDX SBOM of this image's packages">SBOM</a></div>
   </>;
 }
 
@@ -260,7 +261,7 @@ function AgentHelp() {
 function AgentPanel({ host, onChange }: { host: Host; onChange: () => void }) {
   const [token, setToken] = useState("");
   const [err, setErr] = useState("");
-  const origin = window.location.origin;
+  const origin = appUrl();
   const a = host.agent;
   const issue = async (path: string) => {
     setErr("");
@@ -491,7 +492,7 @@ export function HostDetailPage({ id }: { id: number }) {
       </> : <Skeleton />)}
       {t === "findings" && (findings.data ? (findings.data.items.length
         ? <><FindingTable items={findings.data.items} sort={fSort} showAsset={false} table="host-findings"
-            tools={<a className="btn small" href={`/api/findings/export${qs({ host_id: id, status: ["open", "acknowledged"], sort: fSort.sort, order: fSort.order })}`} download>Export CSV</a>} />
+            tools={<a className="btn small" href={`${BASE}/api/findings/export${qs({ host_id: id, status: ["open", "acknowledged"], sort: fSort.sort, order: fSort.order })}`} download>Export CSV</a>} />
           <TabPager data={findings.data} onPage={setFPage} /></>
         : <Empty title="No open findings on this host." />) : <Skeleton />)}
       {t === "fix" && <FixPlan hostId={id} />}
@@ -499,7 +500,7 @@ export function HostDetailPage({ id }: { id: number }) {
       {t === "reports" && <>
         <section className="card">
           <div className="card-head"><h2>Software bill of materials</h2>
-            <a className="btn small" href={`/api/sbom?host_id=${h.id}`} download><Icon name="download" size={14} /> Download SBOM</a></div>
+            <a className="btn small" href={`${BASE}/api/sbom?host_id=${h.id}`} download><Icon name="download" size={14} /> Download SBOM</a></div>
           <p className="small muted">CycloneDX JSON of every package, image and asset on this host, with its open vulnerabilities.
             Use it with tools such as Dependency-Track, or keep it as a record of what was installed.</p>
         </section>

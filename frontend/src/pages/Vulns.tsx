@@ -1,3 +1,4 @@
+import { BASE } from "../base";
 import { useState } from "react";
 import { get, post, qs, type DependabotAlert, type Feed, type Finding, type Page, type TimelineEvent } from "../api";
 import { Icon } from "../icons";
@@ -85,7 +86,7 @@ export function VulnsPage() {
         actions={<>
           <button className="btn" onClick={() => setBulk(!bulk)} disabled={!total} aria-expanded={bulk}
             title="Change the status of every finding these filters match">Change status…</button>
-          <a className="btn" href={`/api/findings/export${qs(filters)}`} download
+          <a className="btn" href={`${BASE}/api/findings/export${qs(filters)}`} download
             title="Download these findings, with the current filters and order, as CSV">Export CSV</a>
           <Link to="/fix" className="btn"><Icon name="fix" size={14} /> Fixes</Link>
         </>} />
