@@ -1,3 +1,4 @@
+import { NAME } from "../prefs";
 import { useState, type PointerEvent } from "react";
 import { get, type Feed, type Finding, type Page } from "../api";
 import { safeUrl } from "../format";
@@ -128,7 +129,7 @@ function ExposureStrip({ d }: { d: Dash }) {
         </Link>
       </div>
       {(unknownOpen > 0 || minor > 0 || notBooted > 0 || d.not_running > 0) && <p className="small muted">
-        {unknownOpen > 0 && <>A further <Link to="/vulnerabilities?match_status=unknown_version">{unknownOpen} need a version</Link> before Patchy can confirm them. </>}
+        {unknownOpen > 0 && <>A further <Link to="/vulnerabilities?match_status=unknown_version">{unknownOpen} need a version</Link> before {NAME} can confirm them. </>}
         {minor > 0 && <><Link to="/vulnerabilities?status=minor">{minor} more</Link> are set aside because the distro rates them unimportant or negligible. </>}
         {notBooted > 0 && <><Link to="/vulnerabilities?status=not_booted">{notBooted}</Link> are in installed kernels that aren't booted. </>}
         {d.not_running > 0 && <>Of the open ones, <Link to="/vulnerabilities?in_use=false">{d.not_running} are in software that isn't running</Link>, so they rank lower.</>}

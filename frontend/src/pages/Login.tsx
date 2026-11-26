@@ -1,3 +1,4 @@
+import { NAME } from "../prefs";
 import { useState } from "react";
 import { post } from "../api";
 import { errText } from "../ui";
@@ -23,7 +24,7 @@ export default function Login({ onLogin }: { onLogin: (user: string, csrf: strin
           setBusy(false);
         }
       }}>
-        <h1><img className="logo" src="/logo.png" alt="" /> Patchy</h1>
+        <h1><img className="logo" src="logo.png" alt="" /> {NAME}</h1>
         <p className="muted">Home lab software inventory and vulnerability tracking.</p>
         <label className="field"><span>Username</span>
           <input autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required maxLength={64} />

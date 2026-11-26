@@ -48,17 +48,26 @@ function read(): Prefs {
   }
 }
 
+// Inside SWSuite the page also loads the suite's theme-init.js, which sets data-theme
+// on <html> before Patchy runs. The suite then owns colours and day/night: Patchy uses
+// its "suite" scheme (mapped to the suite tokens) and follows data-theme live.
+export const IN_SUITE = typeof document !== "undefined" && "theme" in document.documentElement.dataset;
+// The name on screen. Inside SWSuite the app is SWPatch.
+export const NAME = IN_SUITE ? "SWPatch" : "Patchy";
+const suiteMode = (): "day" | "night" => (document.documentElement.dataset.theme === "light" ? "day" : "night");
+
 let current = read();
 const listeners = new Set<() => void>();
 const light = typeof window !== "undefined" ? window.matchMedia?.("(prefers-color-scheme: light)") : undefined;
 
 export function resolvedMode(p: Prefs = current): "day" | "night" {
+  if (IN_SUITE) return suiteMode();
   return p.mode === "system" ? (light?.matches ? "day" : "night") : p.mode;
 }
 
 function apply() {
   const d = document.documentElement, mode = resolvedMode();
-  Object.assign(d.dataset, { scheme: current.scheme, mode, font: current.font, density: current.density });
+  Object.assign(d.dataset, { scheme: IN_SUITE ? "suite" : current.scheme, mode, font: current.font, density: current.density });
   d.style.colorScheme = mode === "day" ? "light" : "dark";
 }
 
@@ -69,7 +78,13 @@ export function setPrefs(patch: Partial<Prefs>) {
   listeners.forEach((l) => l());
 }
 
-light?.addEventListener("change", () => { if (current.mode === "system") { apply(); listeners.forEach((l) => l()); } });
+light?.addEventListener("change", () => { if (current.mode === "system" && !IN_SUITE) { apply(); listeners.forEach((l) => l()); } });
+
+// The portal's theme toggle changes data-theme; follow it without a reload.
+if (IN_SUITE) {
+  new MutationObserver(() => { current = { ...current }; apply(); listeners.forEach((l) => l()); })
+    .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+}
 
 export function usePrefs(): Prefs {
   return useSyncExternalStore((cb) => { listeners.add(cb); return () => listeners.delete(cb); }, () => current);

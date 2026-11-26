@@ -43,7 +43,8 @@ def logout(response: Response, s: UserSession = Depends(current_session), db: Se
 @router.get("/me", response_model=MeOut)
 def me(s: UserSession = Depends(current_session), db: Session = Depends(get_db)):
     demo = db.get(AppSetting, "demo") if settings.demo_mode else None
-    return MeOut(username=s.user.username, csrf_token=s.csrf_token, demo=demo.value.get("snapshot") if demo else None)
+    return MeOut(username=s.user.username, csrf_token=s.csrf_token, demo=demo.value.get("snapshot") if demo else None,
+                 sign_in=not settings.auth_disabled)
 
 
 @router.post("/password", status_code=204)

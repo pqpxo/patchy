@@ -1,9 +1,10 @@
+import { BASE, appUrl } from "../base";
 import { useEffect, useRef, useState } from "react";
 import { del, get, post, qs, type AddedApp, type Agent, type Asset, type Container, type Finding, type Host, type HostUpdates, type Page, type ScanRun,
   type UpgradeRun } from "../api";
 import { Icon } from "../icons";
 import { fmtDate, safeUrl } from "../format";
-import { usePrefs } from "../prefs";
+import { usePrefs, NAME } from "../prefs";
 import { AssetTable, FindingTable } from "../tables";
 import {
   CodeBlock, DangerButton, DataTable, Empty, Eol, ErrorBox, Exposure, Field, KV, Kev, Link, PageHead, Pager, RunBanner, Sev, Skeleton, Status,
@@ -123,7 +124,7 @@ function ImageFindings({ s, c, host, onScan }: { s?: ImageSummary; c: Container;
       : <span className="badge tone-good">None found</span>}
     <div className="cell-sub">{s.packages} package{s.packages === 1 ? "" : "s"}
       {known && known.image_id === c.image_id && <>, scanned <When iso={known.scanned_at} /></>}
-      , <a href={`/api/sbom${qs({ host_id: host.id, image: c.image })}`} download title="CycloneDX SBOM of this image's packages">SBOM</a></div>
+      , <a href={`${BASE}/api/sbom${qs({ host_id: host.id, image: c.image })}`} download title="CycloneDX SBOM of this image's packages">SBOM</a></div>
   </>;
 }
 
@@ -210,10 +211,10 @@ function AgentHelp() {
     <dialog ref={ref} className="sheet" aria-labelledby="agent-help-title" onClick={(e) => { if (e.target === ref.current) ref.current.close(); }}>
       <div className="card-head"><h2 id="agent-help-title">About the agent</h2>
         <button type="button" className="icon-btn" aria-label="Close" onClick={() => ref.current?.close()}><Icon name="close" /></button></div>
-      <p>A small Python script that keeps this host's inventory current. It runs every 6 hours (and a few minutes after boot) and sends one report to Patchy.</p>
+      <p>A small Python script that keeps this host's inventory current. It runs every 6 hours (and a few minutes after boot) and sends one report to {NAME}.</p>
       <h3>What it collects</h3>
       <ul>
-        <li>Installed OS packages, which Patchy checks against OSV.</li>
+        <li>Installed OS packages, which {NAME} checks against OSV.</li>
         <li>Listening ports and running services.</li>
         <li>Versions of common servers and runtimes, such as nginx, OpenSSH, OpenSSL, Python and Node.js.</li>
         <li>Software added to the base OS: packages someone chose to install, plus Snap and Flatpak apps.</li>
@@ -224,7 +225,7 @@ function AgentHelp() {
       <ul>
         <li>It only connects out to this server and opens no ports. It changes nothing on the host, unless you allow Run upgrade (below).</li>
         <li>It runs as the unprivileged <code>patchy-agent</code> user in a locked-down systemd service.</li>
-        <li>The token is shown once. Patchy stores only a hash; the host keeps it in <code>/etc/patchy-agent/token</code>.</li>
+        <li>The token is shown once. {NAME} stores only a hash; the host keeps it in <code>/etc/patchy-agent/token</code>.</li>
       </ul>
       <h3>States</h3>
       <ul>
@@ -236,13 +237,13 @@ function AgentHelp() {
       <p><strong>Rescan</strong> re-checks this host's inventory against the latest vulnerability data straight away. Agents from 1.2 also check in every 5 minutes (every minute with Run upgrade allowed) and send a fresh report when a rescan is waiting.</p>
       <h3>Run upgrade</h3>
       <p>Off unless you allow it at install time (agent 1.6 and later, apt hosts only). Then a separate root service runs one fixed command,
-        <code>apt-get update && apt-get upgrade</code>, when you press <strong>Run upgrade</strong> on the Updates tab. Patchy can't make it run
+        <code>apt-get update && apt-get upgrade</code>, when you press <strong>Run upgrade</strong> on the Updates tab. {NAME} can't make it run
         anything else: the agent only touches a request file, and the service reads nothing but its timestamp. To change your answer:</p>
       <CodeBlock code={UPGRADES_ASK} />
       <h3>Docker containers</h3>
       <p>Reading the Docker socket needs the docker group, which is root-equivalent, so it is off unless you allow it at install time. To turn it on later:</p>
       <CodeBlock code={DOCKER_ON} />
-      <p>With containers on, <strong>Scan</strong> on a container asks the agent to list the packages inside its image with Syft, so they are checked for vulnerabilities too. Each image is scanned once and kept until it changes. When a pull or rebuild (Watchtower, <code>docker compose pull</code>) replaces a scanned image, Patchy queues the new one automatically, so its scan isn't lost. <strong>Scan all</strong> queues every image not yet scanned. To scan every new image automatically instead, set <code>"image_scan": "auto"</code> under <code>collect</code> in the config. The installer offers Syft once. To add it later:</p>
+      <p>With containers on, <strong>Scan</strong> on a container asks the agent to list the packages inside its image with Syft, so they are checked for vulnerabilities too. Each image is scanned once and kept until it changes. When a pull or rebuild (Watchtower, <code>docker compose pull</code>) replaces a scanned image, {NAME} queues the new one automatically, so its scan isn't lost. <strong>Scan all</strong> queues every image not yet scanned. To scan every new image automatically instead, set <code>"image_scan": "auto"</code> under <code>collect</code> in the config. The installer offers Syft once. To add it later:</p>
       <CodeBlock code={SYFT_ON} />
       <h3>Rotate or revoke</h3>
       <p><strong>Rotate</strong> issues a new token and stops the old one at once; paste the new token into <code>/etc/patchy-agent/token</code>. <strong>Revoke</strong> stops the agent reporting.</p>
@@ -260,7 +261,7 @@ function AgentHelp() {
 function AgentPanel({ host, onChange }: { host: Host; onChange: () => void }) {
   const [token, setToken] = useState("");
   const [err, setErr] = useState("");
-  const origin = window.location.origin;
+  const origin = appUrl();
   const a = host.agent;
   const issue = async (path: string) => {
     setErr("");
@@ -301,7 +302,7 @@ function AgentPanel({ host, onChange }: { host: Host; onChange: () => void }) {
       {err && <div className="alert bad" role="alert">{err}</div>}
       {token && (
         <div className="token-box">
-          <div className="alert warn"><p><strong>Copy this token now.</strong> It is shown once; Patchy stores only a hash.</p></div>
+          <div className="alert warn"><p><strong>Copy this token now.</strong> It is shown once; {NAME} stores only a hash.</p></div>
           <CodeBlock code={token} />
           <p className="small">Install on the host (needs python3 and systemd). Paste the whole block; the installer then asks for the token, so it stays out of shell history:</p>
           <CodeBlock code={install} />
@@ -364,7 +365,7 @@ function UpdatesTab({ host, onChange }: { host: Host; onChange: () => void }) {
           ? <>Upgrade requested by {last!.requested_by} <When iso={last!.requested_at} />. Waiting for the agent, which checks in every minute.</>
           : <>Upgrading since <When iso={last!.sent_at} />. The result appears here when apt finishes.</>}</span></div>}
       {u.reboot_required && <div className="alert warn"><p><strong>Reboot needed</strong>{u.reboot_packages.length ? <> for {u.reboot_packages.join(", ")}</> : null}.
-        Patchy doesn't reboot hosts; run <code>sudo reboot</code> when it suits.</p></div>}
+        {NAME} doesn't reboot hosts; run <code>sudo reboot</code> when it suits.</p></div>}
       {!data.can_upgrade && <details>
         <summary>Run upgrade is off for this host</summary>
         <p className="small">Run this on the host yourself:</p><CodeBlock code={APT_UPGRADE} />
@@ -491,7 +492,7 @@ export function HostDetailPage({ id }: { id: number }) {
       </> : <Skeleton />)}
       {t === "findings" && (findings.data ? (findings.data.items.length
         ? <><FindingTable items={findings.data.items} sort={fSort} showAsset={false} table="host-findings"
-            tools={<a className="btn small" href={`/api/findings/export${qs({ host_id: id, status: ["open", "acknowledged"], sort: fSort.sort, order: fSort.order })}`} download>Export CSV</a>} />
+            tools={<a className="btn small" href={`${BASE}/api/findings/export${qs({ host_id: id, status: ["open", "acknowledged"], sort: fSort.sort, order: fSort.order })}`} download>Export CSV</a>} />
           <TabPager data={findings.data} onPage={setFPage} /></>
         : <Empty title="No open findings on this host." />) : <Skeleton />)}
       {t === "fix" && <FixPlan hostId={id} />}
@@ -499,7 +500,7 @@ export function HostDetailPage({ id }: { id: number }) {
       {t === "reports" && <>
         <section className="card">
           <div className="card-head"><h2>Software bill of materials</h2>
-            <a className="btn small" href={`/api/sbom?host_id=${h.id}`} download><Icon name="download" size={14} /> Download SBOM</a></div>
+            <a className="btn small" href={`${BASE}/api/sbom?host_id=${h.id}`} download><Icon name="download" size={14} /> Download SBOM</a></div>
           <p className="small muted">CycloneDX JSON of every package, image and asset on this host, with its open vulnerabilities.
             Use it with tools such as Dependency-Track, or keep it as a record of what was installed.</p>
         </section>

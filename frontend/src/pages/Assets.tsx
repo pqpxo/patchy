@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { del, get, post, put, type Asset, type AssetDetail, type Page } from "../api";
 import { Icon } from "../icons";
 import { TYPES, label, safeUrl, versionText } from "../format";
-import { usePrefs } from "../prefs";
+import { usePrefs, NAME } from "../prefs";
 import { AssetTable, FindingTable } from "../tables";
 import {
   CheckState, DangerButton, Empty, ErrorBox, Eol, Field, KV, Link, PageHead, Pager, Skeleton, Tabs, When, errText,
@@ -160,7 +160,7 @@ const NO_FINDINGS: Record<string, string> = {
   no_known_vulns: "No advisory matches this exact version as of the last check.",
   stale: "No matches at the last check, but feed data is stale. Refresh feeds before relying on this.",
   not_checked_yet: "Not checked yet. Run a feed refresh.",
-  version_unknown: "No findings, but the version is unknown so Patchy cannot confirm this is unaffected.",
+  version_unknown: `No findings, but the version is unknown so ${NAME} cannot confirm this is unaffected.`,
   not_checkable: "No supported vulnerability source covers this component. Add a CPE product to check it against NVD.",
 };
 

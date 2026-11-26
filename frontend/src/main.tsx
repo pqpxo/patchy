@@ -1,8 +1,8 @@
 import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { get, post, put, setCsrf, setUnauthorisedHandler, type Host, type Page, type Repo } from "./api";
+import { get, post, put, setCsrf, setSignIn, setUnauthorisedHandler, signIn, type Host, type Page, type Repo } from "./api";
 import { Icon } from "./icons";
-import { resolvedMode, setPrefs, usePrefs } from "./prefs";
+import { IN_SUITE, resolvedMode, setPrefs, usePrefs, NAME } from "./prefs";
 import { Link, Skeleton, Toaster, errText, navigate, toast, usePath } from "./ui";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -130,8 +130,8 @@ function App() {
 
   useEffect(() => {
     setUnauthorisedHandler(() => setUser(null));
-    get<{ username: string; csrf_token: string; demo?: string | null }>("/api/auth/me")
-      .then((me) => { setCsrf(me.csrf_token); setUser(me.username); setDemo(me.demo ?? null); })
+    get<{ username: string; csrf_token: string; demo?: string | null; sign_in?: boolean }>("/api/auth/me")
+      .then((me) => { setCsrf(me.csrf_token); setSignIn(me.sign_in ?? true); setUser(me.username); setDemo(me.demo ?? null); })
       .catch(() => setUser(null));
     const key = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette((p) => !p); }
@@ -172,12 +172,12 @@ function App() {
       <a className="skip" href="#main">Skip to content</a>
       <div className="topbar">
         <button className="icon-btn" aria-label="Open menu" aria-expanded={menu} aria-controls="side" onClick={() => setMenu(true)}><Icon name="menu" size={20} /></button>
-        <img className="logo" src="/logo.png" alt="" /><span className="grow">Patchy</span>
+        <img className="logo" src="logo.png" alt="" /><span className="grow">{NAME}</span>
         <button className="icon-btn" aria-label="Quick search" onClick={() => setPalette(true)}><Icon name="search" size={18} /></button>
       </div>
       {menu && <div className="backdrop" onClick={() => setMenu(false)} />}
       <aside id="side" className={menu ? "side open" : "side"}>
-        <div className="brand"><img className="logo" src="/logo.png" alt="" /><span>Patchy</span></div>
+        <div className="brand" data-sw-chrome><img className="logo" src="logo.png" alt="" /><span>Patchy</span></div>
         <button className="search-btn" onClick={() => setPalette(true)} title="Quick search (Ctrl+K)">
           <Icon name="search" size={15} /><span className="label">Search</span><kbd>Ctrl K</kbd>
         </button>
@@ -199,8 +199,8 @@ function App() {
         </nav>
         <div className="side-foot">
           <div className="row">
-            <button className="icon-btn" title={night ? "Switch to day" : "Switch to night"} aria-label={night ? "Switch to day mode" : "Switch to night mode"}
-              onClick={() => setPrefs({ mode: night ? "day" : "night" })}><Icon name={night ? "sun" : "moon"} /></button>
+            {!IN_SUITE && <button className="icon-btn" title={night ? "Switch to day" : "Switch to night"} aria-label={night ? "Switch to day mode" : "Switch to night mode"}
+              onClick={() => setPrefs({ mode: night ? "day" : "night" })}><Icon name={night ? "sun" : "moon"} /></button>}
             <button className={alertsPaused ? "icon-btn off" : "icon-btn"} aria-pressed={alertsPaused}
               title={alertsPaused ? "Alerts paused. Click to resume" : "Pause alerts"} aria-label="Pause alerts"
               onClick={async () => {
@@ -212,7 +212,7 @@ function App() {
               }}><Icon name={alertsPaused ? "bell-off" : "bell"} /></button>
             <button className="icon-btn rail-toggle" title={prefs.rail ? "Expand sidebar" : "Collapse sidebar"} aria-label="Toggle sidebar width"
               onClick={() => setPrefs({ rail: !prefs.rail })}><Icon name="rail" /></button>
-            {!demo && <button className="icon-btn" title="Sign out" aria-label="Sign out" onClick={async () => {
+            {!demo && signIn && <button className="icon-btn" title="Sign out" aria-label="Sign out" onClick={async () => {
               await post("/api/auth/logout").catch(() => {});
               setUser(null);
               navigate("/");

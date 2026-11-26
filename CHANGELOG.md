@@ -2,6 +2,20 @@
 
 All notable changes to Patchy. Versions follow [semantic versioning](https://semver.org/).
 
+## 1.26.0 - 2026-11-26
+
+### Added
+- **Runs under a path prefix**, eg `https://example.lan/patchy/`. Patchy reads `X-Forwarded-Prefix` from the reverse proxy and sets the page's `<base href>`, so one build works at a site root and under a prefix. Links, API calls, downloads, agent install commands and the Home Assistant example all include the prefix.
+- `SUITE_ASSETS_PATH`: when set (eg `/suite`), every page loads that path's `theme.css` and `theme-init.js`, and Patchy takes its colours, font and day/night from them. Settings then hides the scheme, font and mode choices. Used by SWSuite.
+- `AUTH_DISABLED`: no sign-in. Everyone who can reach Patchy uses it as one shared user called `local`, and Sign out and Change password are hidden. Off by default; only for when something else already controls who can reach it. Requests that change things still need the CSRF token, so other sites can't make them. Agent and integration tokens are unaffected.
+- Inside SWSuite (`SUITE_ASSETS_PATH` set) the app calls itself **SWPatch** on screen.
+
+### Changed
+- Framing: `X-Frame-Options` is now `SAMEORIGIN` and the CSP has `frame-ancestors 'self'` (was `DENY`/`'none'`), so a portal on the same origin can show Patchy in a frame. Other sites still can't. `base-uri` is now `'self'` to allow the `<base>` tag.
+
+### Upgrade notes
+- No database migration.
+
 ## 1.25.0 - 2026-11-25
 
 ### Added

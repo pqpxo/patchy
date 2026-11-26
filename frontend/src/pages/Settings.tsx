@@ -1,8 +1,9 @@
+import { appUrl } from "../base";
 import { useState, type ReactNode } from "react";
-import { del, get, post, put, type AuditEntry, type Feed, type Host, type Page, type ScanRun } from "../api";
+import { del, get, post, put, signIn, type AuditEntry, type Feed, type Host, type Page, type ScanRun } from "../api";
 import { Icon } from "../icons";
 import { HOURS_LABEL, safeUrl } from "../format";
-import { FONTS, PAGE_SIZES, SCHEMES, resolvedMode, setPrefs, usePrefs, type Mode } from "../prefs";
+import { FONTS, IN_SUITE, PAGE_SIZES, SCHEMES, resolvedMode, setPrefs, usePrefs, type Mode, NAME } from "../prefs";
 import { CodeBlock, ErrorBox, Field, KV, Link, PageHead, Pager, RunBanner, Skeleton, Switch, When, errText, toast, useLoad, useQueryParam } from "../ui";
 
 interface SettingsData {
@@ -37,14 +38,16 @@ function Appearance() {
   return (
     <>
       <section className="card">
-        <div className="setting-row">
+        {IN_SUITE ? <div className="setting-row">
+          <div><div className="label">Colours and mode</div><div className="help">Set by SWSuite. Use the theme button in the suite's top bar.</div></div>
+        </div> : <div className="setting-row">
           <div><div className="label">Mode</div><div className="help">Day, night, or follow your device. Saved in this browser.</div></div>
           <div className="seg-ctl" role="group" aria-label="Mode">
             {modes.map(([id, l, icon]) => (
               <button key={id} aria-pressed={p.mode === id} onClick={() => setPrefs({ mode: id })}><Icon name={icon} size={14} />{l}</button>
             ))}
           </div>
-        </div>
+        </div>}
         <div className="setting-row">
           <div><div className="label">Density</div><div className="help">Compact fits more rows on screen.</div></div>
           <div className="seg-ctl" role="group" aria-label="Density">
@@ -64,7 +67,7 @@ function Appearance() {
           <Switch on={p.rail} onChange={(v) => setPrefs({ rail: v })} label="Icons-only sidebar" />
         </div>
       </section>
-      <section className="card">
+      {!IN_SUITE && <section className="card">
         <h2>Colour scheme</h2>
         <div className="themes">
           {SCHEMES.map((s) => (
@@ -81,8 +84,8 @@ function Appearance() {
             </button>
           ))}
         </div>
-      </section>
-      <section className="card">
+      </section>}
+      {!IN_SUITE && <section className="card">
         <h2>Font</h2>
         <p className="small muted">Uses fonts already on your device, so nothing is downloaded. Numbers and versions always use a monospaced font.</p>
         <div className="fonts">
@@ -92,7 +95,7 @@ function Appearance() {
             </button>
           ))}
         </div>
-      </section>
+      </section>}
     </>
   );
 }
@@ -121,7 +124,7 @@ function Sources({ choices }: { choices: number[] }) {
         <button className="btn small" onClick={() => refresh()}><Icon name="refresh" size={14} /> Refresh all now</button>
       </div>
       <RunBanner run={runs.data?.items[0]} what="Refresh" onFinished={feeds.reload} />
-      <p className="small muted">Each source refreshes on its own schedule. After a refresh, Patchy re-matches your inventory.
+      <p className="small muted">Each source refreshes on its own schedule. After a refresh, {NAME} re-matches your inventory.
         Changes here override <code>FEED_REFRESH_HOURS</code> and the <code>*_ENABLED</code> variables.</p>
       <div className="sources">
         {feeds.data.map((f) => {
@@ -286,8 +289,8 @@ function Alerts({ a, onChange }: { a: AlertsData; onChange: () => void }) {
           Anything set in <code>.env</code> takes priority and is locked here.</p>
         <details className="dest">
           <summary><b>Links in alerts</b> {a.fields.patchy_url.value ? <span className="badge tone-good">Set</span> : <span className="badge tone-muted">Not set</span>}</summary>
-          <p className="small muted">The address you open Patchy on, so alerts can link straight to the finding or host.</p>
-          <DestinationForm key={JSON.stringify(a.fields.patchy_url)} fields={a.fields} defs={[["patchy_url", "Patchy address", "https://patchy.example.lan"]]} onSaved={onChange} />
+          <p className="small muted">The address you open {NAME} on, so alerts can link straight to the finding or host.</p>
+          <DestinationForm key={JSON.stringify(a.fields.patchy_url)} fields={a.fields} defs={[["patchy_url", `${NAME} address`, "https://patchy.example.lan"]]} onSaved={onChange} />
         </details>
         {DESTINATIONS.map((d) => (
           <details key={d.id} className="dest">
@@ -301,7 +304,7 @@ function Alerts({ a, onChange }: { a: AlertsData; onChange: () => void }) {
       </section>
       <section className="card">
         <h2>What to alert on</h2>
-        <p className="small muted">Patchy checks every 5 minutes and sends one message listing what's new. Each thing alerts once.
+        <p className="small muted">{NAME} checks every 5 minutes and sends one message listing what's new. Each thing alerts once.
           Anything already there when alerts first ran, or found while its alert was off, isn't sent.</p>
         <div className="setting-row">
           <div><div className="label">Pause all alerts</div><div className="help">Nothing is sent while paused, and what turns up meanwhile isn't sent later. Also on the bell at the bottom of the sidebar.</div></div>
@@ -354,7 +357,7 @@ function System({ s }: { s: SettingsData }) {
         ]} />
       </section>
       <section className="card">
-        <h2>What Patchy can and can't assess</h2>
+        <h2>What {NAME} can and can't assess</h2>
         <p><strong>Exact local version comparison:</strong> {s.coverage.local_version_comparison.join(", ")}.</p>
         <p><strong>Queried in OSV:</strong> {s.coverage.osv_queried.join(", ")}.</p>
         {s.coverage.nvd_products && <p><strong>NVD product matching:</strong> {s.coverage.nvd_products}.</p>}
@@ -423,13 +426,13 @@ function Integrations() {
     try { await del(`/api/settings/tokens/${t.id}`); toast(`${t.name} revoked.`); tokens.reload(); }
     catch (e) { toast(errText(e), "bad"); }
   };
-  const origin = window.location.origin;
+  const origin = appUrl();
   return (
     <>
       <section className="card">
         <h2>Read-only tokens</h2>
         <p className="small muted">A token can read <code>/api/integrations/summary</code> (finding counts, end of life, hosts not reporting, newer images) and nothing else.
-          Patchy stores only a hash, so a token is shown once.</p>
+          {NAME} stores only a hash, so a token is shown once.</p>
         <form className="row" onSubmit={(e) => { e.preventDefault(); create(); }}>
           <input aria-label="Token name" value={name} maxLength={100} required onChange={(e) => setName(e.target.value)} />
           <button className="btn primary small" disabled={busy || !name.trim()}>Create token</button>
@@ -454,7 +457,7 @@ function Integrations() {
       <section className="card">
         <h2>Home Assistant sensors</h2>
         <p className="small muted">Add this to <code>configuration.yaml</code> (or a package), then restart Home Assistant. It checks every 5 minutes.
-          Use the address Home Assistant can reach Patchy on, if it differs from this one.</p>
+          Use the address Home Assistant can reach {NAME} on, if it differs from this one.</p>
         <CodeBlock code={haYaml(origin)} wrap={false} />
         <p className="small muted">Each sensor keeps history, so you can graph it or trigger automations, for example when <code>sensor.patchy_known_exploited</code> goes above 0.</p>
       </section>
@@ -476,7 +479,7 @@ function DeadlinesCard({ d, onSaved }: { d: Deadlines; onSaved: () => void }) {
   return (
     <section className="card">
       <h2>Fix-by deadlines</h2>
-      <p className="small muted">How many days a finding may stay open, counted from when Patchy first found it. Overdue findings are counted on the Overview,
+      <p className="small muted">How many days a finding may stay open, counted from when {NAME} first found it. Overdue findings are counted on the Overview,
         can be filtered on Vulnerabilities, and can send an alert. Known-exploited findings get the critical deadline, counted from when CISA listed them
         if that's later. 0 turns a deadline off.</p>
       <form onSubmit={(e) => { e.preventDefault(); save(); }}>
@@ -645,7 +648,7 @@ function About() {
     <>
       <section className="card">
         <h2>Version</h2>
-        <KV rows={[["Patchy", <span className="num">{v.data.version}</span>], ["Bundled agent", <span className="num">{v.data.agent_version ?? "unknown"}</span>]]} />
+        <KV rows={[[NAME, <span className="num">{v.data.version}</span>], ["Bundled agent", <span className="num">{v.data.agent_version ?? "unknown"}</span>]]} />
       </section>
       <section className="card">
         <h2>Changelog</h2>
@@ -658,22 +661,23 @@ function About() {
 export default function SettingsPage() {
   const s = useLoad(() => get<SettingsData>("/api/settings"), []);
   const [tab, setTab] = useQueryParam("tab");
-  const t = SECTIONS.some(([id]) => id === tab) ? tab : "appearance";
+  const sections = SECTIONS.filter(([id]) => signIn || id !== "account");
+  const t = sections.some(([id]) => id === tab) ? tab : "appearance";
   return (
     <>
-      <PageHead title="Settings" sub={s.data ? <>Patchy <span className="num">{s.data.version}</span></> : undefined} />
+      <PageHead title="Settings" sub={s.data ? <>{NAME} <span className="num">{s.data.version}</span></> : undefined} />
       <div className="settings">
         <nav className="settings-nav" aria-label="Settings sections">
-          {SECTIONS.map(([id, label]) => <button key={id} aria-current={t === id} onClick={() => setTab(id)}>{label}</button>)}
+          {sections.map(([id, label]) => <button key={id} aria-current={t === id} onClick={() => setTab(id)}>{label}</button>)}
         </nav>
         <div>
           <ErrorBox error={s.error} onRetry={s.reload} />
           {t === "appearance" && <Appearance />}
           {t === "sources" && s.data && s.data.worker?.version !== s.data.version && <div className="alert warn" role="alert">
             <p>{s.data.worker
-              ? <>The worker is running Patchy <span className="num">{s.data.worker.version}</span> but the app is <span className="num">{s.data.version}</span>, so sources refresh with old code. On the server, in the Patchy folder, run:</>
-              : <>The worker hasn't checked in since this update, so sources may not refresh. If this stays, run this on the server, in the Patchy folder:</>}</p>
-            <CodeBlock code="docker compose up -d --force-recreate worker" />
+              ? <>The worker is running {NAME} <span className="num">{s.data.worker.version}</span> but the app is <span className="num">{s.data.version}</span>, so sources refresh with old code. On the server, in the {IN_SUITE ? "SWSuite" : "Patchy"} folder, run:</>
+              : <>The worker hasn't checked in since this update, so sources may not refresh. If this stays, run this on the server, in the {IN_SUITE ? "SWSuite" : "Patchy"} folder:</>}</p>
+            <CodeBlock code={`docker compose up -d --force-recreate ${IN_SUITE ? "swpatch-worker" : "worker"}`} />
           </div>}
           {t === "sources" && (s.data ? <><Sources choices={s.data.hour_choices} /><NewsFeeds n={s.data.news} onSaved={s.reload} /></> : <Skeleton />)}
           {t === "alerts" && (s.data ? <Alerts a={s.data.alerts} onChange={s.reload} /> : <Skeleton />)}

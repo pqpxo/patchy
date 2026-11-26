@@ -10,6 +10,7 @@ from datetime import timedelta
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .config import settings
@@ -17,6 +18,7 @@ from .db import get_db, utcnow
 from .models import Agent, AppSetting, AuditLog, User, UserSession
 
 SESSION_COOKIE = "patchy_session"
+LOCAL_USER = "local"  # AUTH_DISABLED: everyone acts as this user
 _SCRYPT = {"n": 2**15, "r": 8, "p": 1, "maxmem": 64 * 1024 * 1024}
 
 
@@ -90,12 +92,29 @@ def create_session(db: Session, user: User) -> tuple[str, UserSession]:
     return token, s
 
 
-def current_session(request: Request, db: Session = Depends(get_db)) -> UserSession:
-    if settings.demo_mode and db.get(AppSetting, "demo"):  # only a database `demo-load` made: everyone is the demo
-        # user, and the read-only guard in main.py refuses every change
-        s = db.scalar(select(UserSession).join(User).where(User.username == "demo"))
-        if s:
-            return s
+def _local_session(db: Session) -> UserSession:
+    """AUTH_DISABLED: no sign-in. Everyone shares one long-lived session; CSRF still applies."""
+    s = db.scalar(select(UserSession).join(User).where(User.username == LOCAL_USER, UserSession.expires_at > utcnow())
+                  .order_by(UserSession.expires_at.desc()).limit(1))
+    if s:
+        return s
+    user = db.scalar(select(User).where(User.username == LOCAL_USER))
+    if not user:
+        user = User(username=LOCAL_USER, password_hash=hash_password(secrets.token_urlsafe(32)))  # never typed
+        db.add(user)
+        db.flush()
+    s = UserSession(token_hash=sha256(secrets.token_urlsafe(32)), csrf_token=secrets.token_urlsafe(24),
+                    user_id=user.id, expires_at=utcnow() + timedelta(days=3650))
+    db.add(s)
+    try:
+        db.commit()
+    except IntegrityError:  # two first requests at once: use the one that won
+        db.rollback()
+        return _local_session(db)
+    return s
+
+
+def _cookie_session(request: Request, db: Session) -> UserSession:
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         raise HTTPException(401, "Not signed in.")
@@ -111,6 +130,19 @@ def current_session(request: Request, db: Session = Depends(get_db)) -> UserSess
     if idle and (s.last_seen_at is None or s.last_seen_at < now - timedelta(minutes=1)):
         s.last_seen_at = now
         db.commit()
+    return s
+
+
+def current_session(request: Request, db: Session = Depends(get_db)) -> UserSession:
+    if settings.demo_mode and db.get(AppSetting, "demo"):  # only a database `demo-load` made: everyone is the demo
+        # user, and the read-only guard in main.py refuses every change
+        s = db.scalar(select(UserSession).join(User).where(User.username == "demo"))
+        if s:
+            return s
+    if settings.auth_disabled:
+        s = _local_session(db)
+    else:
+        s = _cookie_session(request, db)
     if request.method not in ("GET", "HEAD", "OPTIONS"):
         sent = request.headers.get("x-csrf-token", "")
         if not hmac.compare_digest(sent, s.csrf_token):
