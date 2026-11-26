@@ -53,6 +53,7 @@ class MeOut(BaseModel):
     username: str
     csrf_token: str
     demo: str | None = None  # in the demo, the date of its vulnerability data snapshot
+    sign_in: bool = True  # False when AUTH_DISABLED: no sign-out or password to change
 
 
 # ---------- inventory ----------

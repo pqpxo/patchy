@@ -4,7 +4,7 @@ import { del, get, post, qs, type AddedApp, type Agent, type Asset, type Contain
   type UpgradeRun } from "../api";
 import { Icon } from "../icons";
 import { fmtDate, safeUrl } from "../format";
-import { usePrefs } from "../prefs";
+import { usePrefs, NAME } from "../prefs";
 import { AssetTable, FindingTable } from "../tables";
 import {
   CodeBlock, DangerButton, DataTable, Empty, Eol, ErrorBox, Exposure, Field, KV, Kev, Link, PageHead, Pager, RunBanner, Sev, Skeleton, Status,
@@ -211,10 +211,10 @@ function AgentHelp() {
     <dialog ref={ref} className="sheet" aria-labelledby="agent-help-title" onClick={(e) => { if (e.target === ref.current) ref.current.close(); }}>
       <div className="card-head"><h2 id="agent-help-title">About the agent</h2>
         <button type="button" className="icon-btn" aria-label="Close" onClick={() => ref.current?.close()}><Icon name="close" /></button></div>
-      <p>A small Python script that keeps this host's inventory current. It runs every 6 hours (and a few minutes after boot) and sends one report to Patchy.</p>
+      <p>A small Python script that keeps this host's inventory current. It runs every 6 hours (and a few minutes after boot) and sends one report to {NAME}.</p>
       <h3>What it collects</h3>
       <ul>
-        <li>Installed OS packages, which Patchy checks against OSV.</li>
+        <li>Installed OS packages, which {NAME} checks against OSV.</li>
         <li>Listening ports and running services.</li>
         <li>Versions of common servers and runtimes, such as nginx, OpenSSH, OpenSSL, Python and Node.js.</li>
         <li>Software added to the base OS: packages someone chose to install, plus Snap and Flatpak apps.</li>
@@ -225,7 +225,7 @@ function AgentHelp() {
       <ul>
         <li>It only connects out to this server and opens no ports. It changes nothing on the host, unless you allow Run upgrade (below).</li>
         <li>It runs as the unprivileged <code>patchy-agent</code> user in a locked-down systemd service.</li>
-        <li>The token is shown once. Patchy stores only a hash; the host keeps it in <code>/etc/patchy-agent/token</code>.</li>
+        <li>The token is shown once. {NAME} stores only a hash; the host keeps it in <code>/etc/patchy-agent/token</code>.</li>
       </ul>
       <h3>States</h3>
       <ul>
@@ -237,13 +237,13 @@ function AgentHelp() {
       <p><strong>Rescan</strong> re-checks this host's inventory against the latest vulnerability data straight away. Agents from 1.2 also check in every 5 minutes (every minute with Run upgrade allowed) and send a fresh report when a rescan is waiting.</p>
       <h3>Run upgrade</h3>
       <p>Off unless you allow it at install time (agent 1.6 and later, apt hosts only). Then a separate root service runs one fixed command,
-        <code>apt-get update && apt-get upgrade</code>, when you press <strong>Run upgrade</strong> on the Updates tab. Patchy can't make it run
+        <code>apt-get update && apt-get upgrade</code>, when you press <strong>Run upgrade</strong> on the Updates tab. {NAME} can't make it run
         anything else: the agent only touches a request file, and the service reads nothing but its timestamp. To change your answer:</p>
       <CodeBlock code={UPGRADES_ASK} />
       <h3>Docker containers</h3>
       <p>Reading the Docker socket needs the docker group, which is root-equivalent, so it is off unless you allow it at install time. To turn it on later:</p>
       <CodeBlock code={DOCKER_ON} />
-      <p>With containers on, <strong>Scan</strong> on a container asks the agent to list the packages inside its image with Syft, so they are checked for vulnerabilities too. Each image is scanned once and kept until it changes. When a pull or rebuild (Watchtower, <code>docker compose pull</code>) replaces a scanned image, Patchy queues the new one automatically, so its scan isn't lost. <strong>Scan all</strong> queues every image not yet scanned. To scan every new image automatically instead, set <code>"image_scan": "auto"</code> under <code>collect</code> in the config. The installer offers Syft once. To add it later:</p>
+      <p>With containers on, <strong>Scan</strong> on a container asks the agent to list the packages inside its image with Syft, so they are checked for vulnerabilities too. Each image is scanned once and kept until it changes. When a pull or rebuild (Watchtower, <code>docker compose pull</code>) replaces a scanned image, {NAME} queues the new one automatically, so its scan isn't lost. <strong>Scan all</strong> queues every image not yet scanned. To scan every new image automatically instead, set <code>"image_scan": "auto"</code> under <code>collect</code> in the config. The installer offers Syft once. To add it later:</p>
       <CodeBlock code={SYFT_ON} />
       <h3>Rotate or revoke</h3>
       <p><strong>Rotate</strong> issues a new token and stops the old one at once; paste the new token into <code>/etc/patchy-agent/token</code>. <strong>Revoke</strong> stops the agent reporting.</p>
@@ -302,7 +302,7 @@ function AgentPanel({ host, onChange }: { host: Host; onChange: () => void }) {
       {err && <div className="alert bad" role="alert">{err}</div>}
       {token && (
         <div className="token-box">
-          <div className="alert warn"><p><strong>Copy this token now.</strong> It is shown once; Patchy stores only a hash.</p></div>
+          <div className="alert warn"><p><strong>Copy this token now.</strong> It is shown once; {NAME} stores only a hash.</p></div>
           <CodeBlock code={token} />
           <p className="small">Install on the host (needs python3 and systemd). Paste the whole block; the installer then asks for the token, so it stays out of shell history:</p>
           <CodeBlock code={install} />
@@ -365,7 +365,7 @@ function UpdatesTab({ host, onChange }: { host: Host; onChange: () => void }) {
           ? <>Upgrade requested by {last!.requested_by} <When iso={last!.requested_at} />. Waiting for the agent, which checks in every minute.</>
           : <>Upgrading since <When iso={last!.sent_at} />. The result appears here when apt finishes.</>}</span></div>}
       {u.reboot_required && <div className="alert warn"><p><strong>Reboot needed</strong>{u.reboot_packages.length ? <> for {u.reboot_packages.join(", ")}</> : null}.
-        Patchy doesn't reboot hosts; run <code>sudo reboot</code> when it suits.</p></div>}
+        {NAME} doesn't reboot hosts; run <code>sudo reboot</code> when it suits.</p></div>}
       {!data.can_upgrade && <details>
         <summary>Run upgrade is off for this host</summary>
         <p className="small">Run this on the host yourself:</p><CodeBlock code={APT_UPGRADE} />

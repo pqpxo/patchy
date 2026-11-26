@@ -1,8 +1,8 @@
 import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { get, post, put, setCsrf, setUnauthorisedHandler, type Host, type Page, type Repo } from "./api";
+import { get, post, put, setCsrf, setSignIn, setUnauthorisedHandler, signIn, type Host, type Page, type Repo } from "./api";
 import { Icon } from "./icons";
-import { IN_SUITE, resolvedMode, setPrefs, usePrefs } from "./prefs";
+import { IN_SUITE, resolvedMode, setPrefs, usePrefs, NAME } from "./prefs";
 import { Link, Skeleton, Toaster, errText, navigate, toast, usePath } from "./ui";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -130,8 +130,8 @@ function App() {
 
   useEffect(() => {
     setUnauthorisedHandler(() => setUser(null));
-    get<{ username: string; csrf_token: string; demo?: string | null }>("/api/auth/me")
-      .then((me) => { setCsrf(me.csrf_token); setUser(me.username); setDemo(me.demo ?? null); })
+    get<{ username: string; csrf_token: string; demo?: string | null; sign_in?: boolean }>("/api/auth/me")
+      .then((me) => { setCsrf(me.csrf_token); setSignIn(me.sign_in ?? true); setUser(me.username); setDemo(me.demo ?? null); })
       .catch(() => setUser(null));
     const key = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette((p) => !p); }
@@ -172,7 +172,7 @@ function App() {
       <a className="skip" href="#main">Skip to content</a>
       <div className="topbar">
         <button className="icon-btn" aria-label="Open menu" aria-expanded={menu} aria-controls="side" onClick={() => setMenu(true)}><Icon name="menu" size={20} /></button>
-        <img className="logo" src="logo.png" alt="" /><span className="grow">Patchy</span>
+        <img className="logo" src="logo.png" alt="" /><span className="grow">{NAME}</span>
         <button className="icon-btn" aria-label="Quick search" onClick={() => setPalette(true)}><Icon name="search" size={18} /></button>
       </div>
       {menu && <div className="backdrop" onClick={() => setMenu(false)} />}
@@ -212,7 +212,7 @@ function App() {
               }}><Icon name={alertsPaused ? "bell-off" : "bell"} /></button>
             <button className="icon-btn rail-toggle" title={prefs.rail ? "Expand sidebar" : "Collapse sidebar"} aria-label="Toggle sidebar width"
               onClick={() => setPrefs({ rail: !prefs.rail })}><Icon name="rail" /></button>
-            {!demo && <button className="icon-btn" title="Sign out" aria-label="Sign out" onClick={async () => {
+            {!demo && signIn && <button className="icon-btn" title="Sign out" aria-label="Sign out" onClick={async () => {
               await post("/api/auth/logout").catch(() => {});
               setUser(null);
               navigate("/");

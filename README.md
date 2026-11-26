@@ -126,6 +126,7 @@ All settings are environment variables in `.env`. See [.env.example](.env.exampl
 | `BLOCKED_URL` | (empty) | A page to send visitors to when a proxy or CDN in front of Patchy rate-limits them. Patchy's own limits still show their usual message |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Reverse proxy IP(s) trusted for `X-Forwarded-For` |
 | `SUITE_ASSETS_PATH` | (empty) | Path of a portal's shared theme (eg `/suite`). When set, Patchy loads `theme.css` and `theme-init.js` from it and follows that theme. Used by SWSuite |
+| `AUTH_DISABLED` | `false` | No sign-in: anyone who can reach Patchy uses it as one shared user. Only behind something that already controls access, such as SWSuite on a private network |
 | `GITHUB_TOKEN` | empty | Private repos and 5000 requests/h. Never sent to the browser |
 | `OSV_ENABLED` / `KEV_ENABLED` / `NVD_ENABLED` | `true` / `true` / `false` | Source switches (defaults; Settings can override) |
 | `NVD_CPE_ENABLED` / `EPSS_ENABLED` / `EOL_ENABLED` / `DEPENDABOT_ENABLED` | `true` | New in 1.1. Dependabot also needs `GITHUB_TOKEN` with "Dependabot alerts: read" |

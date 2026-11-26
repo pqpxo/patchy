@@ -20,6 +20,9 @@ class Settings:
         self.session_idle_minutes = _int("SESSION_IDLE_MINUTES", 0)  # sign out after this long without activity; 0 = off
         # Public demo: everyone is the demo user and every change is refused. See app/demo.py.
         self.demo_mode = _bool("DEMO_MODE", False)
+        # No sign-in: everyone who can reach Patchy can use it as one shared user. Only behind
+        # something that already controls access, such as SWSuite on a private network.
+        self.auth_disabled = _bool("AUTH_DISABLED", False)
         # A page to send visitors to when a proxy or CDN in front of Patchy rate-limits them. http(s) only.
         blocked = os.getenv("BLOCKED_URL", "").strip()
         self.blocked_url = blocked if blocked.startswith(("https://", "http://")) else ""

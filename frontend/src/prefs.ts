@@ -52,6 +52,8 @@ function read(): Prefs {
 // on <html> before Patchy runs. The suite then owns colours and day/night: Patchy uses
 // its "suite" scheme (mapped to the suite tokens) and follows data-theme live.
 export const IN_SUITE = typeof document !== "undefined" && "theme" in document.documentElement.dataset;
+// The name on screen. Inside SWSuite the app is SWPatch.
+export const NAME = IN_SUITE ? "SWPatch" : "Patchy";
 const suiteMode = (): "day" | "night" => (document.documentElement.dataset.theme === "light" ? "day" : "night");
 
 let current = read();

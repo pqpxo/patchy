@@ -1,3 +1,4 @@
+import { NAME } from "./prefs";
 // Pure display helpers (unit-tested in format.test.ts).
 
 export function fmtDate(iso: string | null | undefined): string {
@@ -22,7 +23,7 @@ export const CHECK_STATES: Record<string, { label: string; tone: string; help: s
   no_known_vulns: { label: "No known vulns", tone: "good", help: "Checked against OSV; no advisory matches this exact version." },
   stale: { label: "Feed stale", tone: "warn", help: "Last check found nothing, but feed data is older than the stale threshold." },
   not_checked_yet: { label: "Not checked yet", tone: "warn", help: "Waiting for a feed refresh. This is not a clean result." },
-  version_unknown: { label: "Version unknown", tone: "warn", help: "Without an exact version Patchy cannot confirm whether it is affected." },
+  version_unknown: { label: "Version unknown", tone: "warn", help: `Without an exact version ${NAME} cannot confirm whether it is affected.` },
   not_checkable: { label: "No vuln source", tone: "muted", help: "No supported vulnerability feed covers this component type." },
   not_present: { label: "Not in latest scan", tone: "muted", help: "Not seen in the most recent scan of its host or repository." },
 };

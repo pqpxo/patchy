@@ -9,6 +9,9 @@ export class ApiError extends Error {
 
 let csrf = "";
 export const setCsrf = (t: string) => (csrf = t);
+// False when the server runs with AUTH_DISABLED: nothing to sign out of, no password to change.
+export let signIn = true;
+export const setSignIn = (v: boolean) => (signIn = v);
 let onUnauthorised: () => void = () => {};
 export const setUnauthorisedHandler = (fn: () => void) => (onUnauthorised = fn);
 

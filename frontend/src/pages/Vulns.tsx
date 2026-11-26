@@ -3,7 +3,7 @@ import { useState } from "react";
 import { get, post, qs, type DependabotAlert, type Feed, type Finding, type Page, type TimelineEvent } from "../api";
 import { Icon } from "../icons";
 import { MATCH_STATUS, SEVERITIES, fmtDate, pct, safeUrl } from "../format";
-import { usePrefs } from "../prefs";
+import { usePrefs, NAME } from "../prefs";
 import { FindingTable } from "../tables";
 import {
   Due, Empty, Epss, ErrorBox, Field, KV, Kev, Link, Match, Reach, PageHead, Pager, Sev, Skeleton, Status, When, errText, toast, useLoad,
@@ -127,7 +127,7 @@ const BULK_MAX = 1000;
 const STATUS_LABEL: Record<string, string> = { open: "Open", acknowledged: "Acknowledged", resolved: "Resolved", false_positive: "False positive" };
 
 function who(actor: string) {
-  return actor === "system" ? "Patchy" : actor.startsWith("rule:") ? "an accepted-risk rule" : actor;
+  return actor === "system" ? NAME : actor.startsWith("rule:") ? "an accepted-risk rule" : actor;
 }
 
 function Timeline({ events }: { events: TimelineEvent[] }) {
@@ -137,7 +137,7 @@ function Timeline({ events }: { events: TimelineEvent[] }) {
         <li key={i}>
           <div>
             {e.kind === "detected" ? <strong>Found</strong> : <Status s={e.to} />}
-            <span className="muted small"> {e.kind === "detected" ? "by Patchy" : <>by {who(e.actor)}{e.from && e.from !== e.to && <>, was {e.from.replace("_", " ")}</>}</>}, <When iso={e.at} /></span>
+            <span className="muted small"> {e.kind === "detected" ? `by ${NAME}` : <>by {who(e.actor)}{e.from && e.from !== e.to && <>, was {e.from.replace("_", " ")}</>}</>}, <When iso={e.at} /></span>
           </div>
           {e.note && <p className="small">{e.note}</p>}
         </li>
@@ -238,9 +238,9 @@ export function FindingDetailPage({ id }: { id: number }) {
             <select value={status || f.status} onChange={(e) => setStatus(e.target.value)}>
               <option value="open">Open</option><option value="acknowledged">Acknowledged</option>
               <option value="resolved">Resolved</option><option value="false_positive">False positive</option>
-              {f.status === "minor" && <option value="minor" disabled>Minor (set by Patchy)</option>}
+              {f.status === "minor" && <option value="minor" disabled>Minor (set by {NAME})</option>}
               {f.status === "risk_accepted" && <option value="risk_accepted" disabled>Risk accepted (by a rule)</option>}
-              {f.status === "not_booted" && <option value="not_booted" disabled>Not booted (set by Patchy)</option>}
+              {f.status === "not_booted" && <option value="not_booted" disabled>Not booted (set by {NAME})</option>}
             </select>
           </Field>
           <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} placeholder="Why?" size={40} /></Field>

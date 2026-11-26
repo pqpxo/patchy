@@ -3,7 +3,7 @@ import { useState } from "react";
 import { del, get, post, qs, type Asset, type Dependabot, type Finding, type Page, type Repo, type ScanRun } from "../api";
 import { Icon } from "../icons";
 import { safeUrl } from "../format";
-import { usePrefs } from "../prefs";
+import { usePrefs, NAME } from "../prefs";
 import { AssetTable, FindingTable } from "../tables";
 import {
   DangerButton, DataTable, Empty, ErrorBox, Exposure, Field, KV, Link, PageHead, Pager, RunBanner, Sev, Skeleton, Status, TAB_PAGE, TabPager, Tabs, When, usePage,
@@ -27,7 +27,7 @@ const repoCols: Col<Repo>[] = [
   { id: "exposure", label: "Open findings", sort: "findings", first: "desc", cell: (r) => <Exposure e={r.exposure} /> },
   { id: "dependabot", label: "Dependabot", cell: (r) => r.dependabot_error ? <span className="badge tone-muted" title={r.dependabot_error}>Not readable</span>
     : r.dependabot_total == null ? <span className="muted">-</span>
-    : <span className="num" title="Open Dependabot alerts (alerts Patchy has not found itself)">{r.dependabot_total}{r.dependabot_only ? <span className="muted"> ({r.dependabot_only} only there)</span> : null}</span> },
+    : <span className="num" title={`Open Dependabot alerts (alerts ${NAME} has not found itself)`}>{r.dependabot_total}{r.dependabot_only ? <span className="muted"> ({r.dependabot_only} only there)</span> : null}</span> },
 ];
 
 export function ReposPage() {
@@ -85,10 +85,10 @@ function DependabotPanel({ d }: { d: Dependabot | null }) {
   if (!d.alerts.length) return <Empty title="No open Dependabot alerts.">Checked <When iso={d.checked_at} />.</Empty>;
   return (
     <>
-      <p className="small muted">{d.total} open alerts, {d.also_in_patchy ?? 0} also found by Patchy. Checked <When iso={d.checked_at} />.
-        Alerts only Dependabot reports usually come from manifests Patchy can't parse, or advisories not yet in OSV.</p>
+      <p className="small muted">{d.total} open alerts, {d.also_in_patchy ?? 0} also found by {NAME}. Checked <When iso={d.checked_at} />.
+        Alerts only Dependabot reports usually come from manifests {NAME} can't parse, or advisories not yet in OSV.</p>
       <div className="table-wrap"><table className="table">
-        <thead><tr><th>Severity</th><th>Advisory</th><th>Package</th><th>Manifest</th><th>Patched in</th><th>In Patchy</th></tr></thead>
+        <thead><tr><th>Severity</th><th>Advisory</th><th>Package</th><th>Manifest</th><th>Patched in</th><th>In {NAME}</th></tr></thead>
         <tbody>{d.alerts.map((a) => {
           const u = safeUrl(a.url);
           return (
